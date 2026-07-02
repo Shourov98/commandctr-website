@@ -42,6 +42,7 @@ import JSZip from "jszip";
 
 import { ApiClientError, authStorage } from "@/lib/auth";
 import { ebayApi } from "@/lib/ebay";
+import { prepareProductAiImageUpload } from "@/lib/product-ai-upload";
 import { productsApi, type ProductCreatePayload, type ProductListItem } from "@/lib/products";
 import { shopifyProductsApi } from "@/lib/shopify-products";
 
@@ -5398,11 +5399,28 @@ export default function AddProductEditor({
     }
   }
 
-  function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
+  async function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
-    setSelectedImage(file);
-    if (file) {
-      setStatusMessage(`Selected source image: ${file.name}`);
+    if (!file) {
+      setSelectedImage(null);
+      return;
+    }
+
+    setStatusMessage("Preparing source image for upload...");
+
+    try {
+      const prepared = await prepareProductAiImageUpload(file);
+      setSelectedImage(prepared.file);
+      setStatusMessage(
+        prepared.wasOptimized
+          ? `Selected source image: ${prepared.file.name}. Optimized from ${(prepared.originalSize / (1024 * 1024)).toFixed(2)} MB to ${(prepared.file.size / (1024 * 1024)).toFixed(2)} MB.`
+          : `Selected source image: ${prepared.file.name}`,
+      );
+    } catch (error) {
+      setSelectedImage(null);
+      setStatusMessage(error instanceof Error ? error.message : "The selected source image could not be prepared.");
+    } finally {
+      event.target.value = "";
     }
   }
 
@@ -5833,8 +5851,18 @@ export default function AddProductEditor({
     }
 
     if (key === "source") {
-      setSelectedImage(file);
-      setStatusMessage(`Selected source image: ${file.name}`);
+      try {
+        const prepared = await prepareProductAiImageUpload(file);
+        setSelectedImage(prepared.file);
+        setStatusMessage(
+          prepared.wasOptimized
+            ? `Selected source image: ${prepared.file.name}. Optimized from ${(prepared.originalSize / (1024 * 1024)).toFixed(2)} MB to ${(prepared.file.size / (1024 * 1024)).toFixed(2)} MB.`
+            : `Selected source image: ${prepared.file.name}`,
+        );
+      } catch (error) {
+        setSelectedImage(null);
+        setStatusMessage(error instanceof Error ? error.message : "The selected source image could not be prepared.");
+      }
       return;
     }
 
