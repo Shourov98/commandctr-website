@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:raw": "node scripts/dev.mjs",
-    "dev:turbo": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node init && node scripts/dev.mjs",
+    "dev:raw": "node init && node scripts/dev.mjs",
+    "dev:turbo": "node init && next dev",
+    "build": "node init && next build",
+    "start": "node init && next start",
     "lint": "eslint",
     "generate:product": "node scripts/generate-product-package.mjs"
   },
