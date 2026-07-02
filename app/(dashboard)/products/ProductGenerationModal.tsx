@@ -4,6 +4,8 @@ import { LoaderCircle, Sparkles, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, useRef, useState } from "react";
 
+import { prepareProductAiImageUpload } from "@/lib/product-ai-upload";
+
 type ProductGenerationModalProps = {
   onClose: () => void;
   open: boolean;
@@ -32,11 +34,28 @@ export default function ProductGenerationModal({
     return null;
   }
 
-  function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
+  async function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
-    setSelectedImage(file);
-    if (file) {
-      setStatusMessage(`Selected image: ${file.name}`);
+    if (!file) {
+      setSelectedImage(null);
+      return;
+    }
+
+    setStatusMessage("Preparing source image for upload...");
+
+    try {
+      const prepared = await prepareProductAiImageUpload(file);
+      setSelectedImage(prepared.file);
+      setStatusMessage(
+        prepared.wasOptimized
+          ? `Selected image: ${prepared.file.name}. Optimized from ${(prepared.originalSize / (1024 * 1024)).toFixed(2)} MB to ${(prepared.file.size / (1024 * 1024)).toFixed(2)} MB.`
+          : `Selected image: ${prepared.file.name}`,
+      );
+    } catch (error) {
+      setSelectedImage(null);
+      setStatusMessage(error instanceof Error ? error.message : "The selected image could not be prepared.");
+    } finally {
+      event.target.value = "";
     }
   }
 
