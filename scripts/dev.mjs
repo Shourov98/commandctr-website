@@ -3,9 +3,28 @@ import net from "node:net";
 import process from "node:process";
 
 const HOST = process.env.HOST ?? "localhost";
-const parsedPort = Number.parseInt(process.env.PORT ?? "3000", 10);
+const portArgIndex = process.argv.findIndex((arg) => arg === "-p" || arg === "--port");
+const cliPort = portArgIndex >= 0 ? process.argv[portArgIndex + 1] : undefined;
+const parsedPort = Number.parseInt(cliPort ?? process.env.PORT ?? "3000", 10);
 const DEFAULT_PORT = Number.isNaN(parsedPort) ? 3000 : parsedPort;
-const MAX_PORT_ATTEMPTS = 10;
+const MAX_PORT_ATTEMPTS = Number.parseInt(process.env.PORT_ATTEMPTS ?? "20", 10);
+const PROBE_HOSTS = ["127.0.0.1", "::1"];
+
+function canConnect(port, host) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    const done = (isOpen) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(isOpen);
+    };
+
+    socket.setTimeout(250);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
 
 function isPortAvailable(port) {
   return new Promise((resolve, reject) => {
@@ -39,12 +58,22 @@ function isPortAvailable(port) {
   });
 }
 
+async function isPortFree(port) {
+  for (const host of PROBE_HOSTS) {
+    if (await canConnect(port, host)) {
+      return false;
+    }
+  }
+
+  return isPortAvailable(port);
+}
+
 async function getAvailablePort(startPort) {
   console.log(`Checking for an available port starting at ${HOST}:${startPort}...`);
 
   for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt += 1) {
     const port = startPort + attempt;
-    if (await isPortAvailable(port)) {
+    if (await isPortFree(port)) {
       if (port === startPort) {
         console.log(`Port ${port} is free.`);
       } else {
