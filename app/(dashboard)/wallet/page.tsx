@@ -60,16 +60,23 @@ function getActivityBadge(item: WalletActivityItem) {
 }
 
 function PlatformCard({ item }: { item: WalletPlatformBalance }) {
-  const badgeColor = item.isConnected ? "bg-[#0d4f3d] text-[#5cf8c9]" : "bg-[#30415f] text-[#c9d5ef]";
+  const isPausedMarketplace = item.platform === "ebay" || item.platform === "etsy";
+  // Restore live marketplace values when eBay/Etsy go live:
+  // const badgeColor = item.isConnected ? "bg-[#0d4f3d] text-[#5cf8c9]" : "bg-[#30415f] text-[#c9d5ef]";
+  // const displayStatus = item.status;
+  // const displayAmount = item.amount;
+  const badgeColor = isPausedMarketplace ? "bg-[#30415f] text-[#c9d5ef]" : item.isConnected ? "bg-[#0d4f3d] text-[#5cf8c9]" : "bg-[#30415f] text-[#c9d5ef]";
+  const displayStatus = isPausedMarketplace ? "Coming Soon" : item.status;
+  const displayAmount = isPausedMarketplace ? 0 : item.amount;
 
   return (
     <article className="rounded-2xl bg-[#1a2748] p-4 text-white">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#1a2748]">●</div>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeColor}`}>{item.status}</span>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badgeColor}`}>{displayStatus}</span>
       </div>
       <p className="text-xs font-semibold uppercase tracking-wide text-[#8ea4cb]">{item.label}</p>
-      <p className="mt-1 text-3xl font-semibold">{formatCurrency(item.amount, item.currency)}</p>
+      <p className="mt-1 text-3xl font-semibold">{formatCurrency(displayAmount, item.currency)}</p>
     </article>
   );
 }
@@ -128,7 +135,7 @@ export default function WalletPage() {
 
   const ctaCopy = shopifyConnected
     ? hasOrders
-      ? "Shopify revenue is connected. Amazon, eBay, and TikTok are coming soon."
+      ? "Shopify revenue is connected. Amazon, eBay, Etsy, and TikTok are coming soon."
       : "Import Shopify orders to populate wallet revenue."
     : "Connect Shopify to start importing revenue from your orders.";
 

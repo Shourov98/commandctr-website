@@ -6,7 +6,8 @@ import { useWalletPageStore } from "@/lib/stores/wallet-page-store";
 
 const transactionsFallback = [
   { platform: "TikTok", order: "#ORD-2026-5432", description: "Sale - Blue-Shirt", amount: "+$25.99" },
-  { platform: "eBay", order: "#ORD-2026-5432", description: "Sale - Blue-Shirt", amount: "+$25.99" },
+  // eBay is intentionally paused for the current release. Restore this row when eBay goes live again.
+  // { platform: "eBay", order: "#ORD-2026-5432", description: "Sale - Blue-Shirt", amount: "+$25.99" },
   { platform: "TikTok", order: "#ORD-2026-5432", description: "Sale - Blue-Shirt", amount: "+$25.99" },
   { platform: "Amazon", order: "#ORD-2026-5435", description: "Sale - Headphones", amount: "+$59.00" },
 ];
@@ -47,9 +48,11 @@ export default function DashboardPage() {
 
   const shopifyBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "shopify"), [overview]);
   const amazonBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "amazon"), [overview]);
-  const ebayBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "ebay"), [overview]);
+  // eBay wallet data is available in the backend, but the channel is marked Coming Soon in this release.
+  // const ebayBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "ebay"), [overview]);
   const tiktokBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "tiktok"), [overview]);
-  const etsyBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "etsy"), [overview]);
+  // Etsy wallet data is available in the backend, but the channel is marked Coming Soon in this release.
+  // const etsyBalance = useMemo(() => overview?.platformBalances?.find((b) => b.platform === "etsy"), [overview]);
 
   const displayTotal = overview ? formatCurrency(overview.paidRevenue) : "$12,450.80";
 
@@ -74,14 +77,20 @@ export default function DashboardPage() {
     },
     {
       platform: "EBAY",
-      amount: overview ? formatCurrency(ebayBalance?.amount ?? 0) : "$2,100.43",
-      tag: ebayBalance?.status || "Synced",
+      // Restore live amount/tag when eBay goes live:
+      // amount: overview ? formatCurrency(ebayBalance?.amount ?? 0) : "$2,100.43",
+      // tag: ebayBalance?.status || "Synced",
+      amount: "$0.00",
+      tag: "Coming Soon",
       tone: "from-[#1a2547] via-[#22335a] to-[#1e5a54]",
     },
     {
       platform: "ETSY",
-      amount: overview ? formatCurrency(etsyBalance?.amount ?? 0) : "$1,850.50",
-      tag: etsyBalance?.status || "Synced",
+      // Restore live amount/tag when Etsy goes live:
+      // amount: overview ? formatCurrency(etsyBalance?.amount ?? 0) : "$1,850.50",
+      // tag: etsyBalance?.status || "Synced",
+      amount: "$0.00",
+      tag: "Coming Soon",
       tone: "from-[#2b1610] via-[#3d2117] to-[#61382d]",
     },
   ];
@@ -90,7 +99,13 @@ export default function DashboardPage() {
     if (!overview || overview.recentActivity.length === 0) {
       return transactionsFallback;
     }
-    return overview.recentActivity.map((item) => ({
+    const visibleActivity = overview.recentActivity.filter((item) => {
+      const platform = getPlatformFromTitle(item.title);
+      // Restore eBay/Etsy activity rows when those marketplaces go live again.
+      return platform !== "eBay" && platform !== "Etsy";
+    });
+
+    return visibleActivity.map((item) => ({
       platform: getPlatformFromTitle(item.title),
       order: item.subtitle,
       description: item.title,

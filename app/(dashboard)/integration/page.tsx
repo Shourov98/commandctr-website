@@ -15,6 +15,13 @@ import {
 } from "@/lib/stores/integration-page-store";
 import "./integration.css";
 
+const EBAY_COMING_SOON = true;
+const ETSY_COMING_SOON = true;
+
+function isComingSoonMarketplace(platformId: string) {
+  return (platformId === "ebay" && EBAY_COMING_SOON) || (platformId === "etsy" && ETSY_COMING_SOON);
+}
+
 const AmazonIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
     <path d="M10.813 11.968c.157.083.36.074.5-.05l.005.005a90 90 0 0 1 1.623-1.405c.173-.143.143-.372.006-.563l-.125-.17c-.345-.465-.673-.906-.673-1.791v-3.3l.001-.335c.008-1.265.014-2.421-.933-3.305C10.404.274 9.06 0 8.03 0 6.017 0 3.77.75 3.296 3.24c-.047.264.143.404.316.443l2.054.22c.19-.009.33-.196.366-.387.176-.857.896-1.271 1.703-1.271.435 0 .929.16 1.188.55.264.39.26.91.257 1.376v.432q-.3.033-.621.065c-1.113.114-2.397.246-3.36.67C3.873 5.91 2.94 7.08 2.94 8.798c0 2.2 1.387 3.298 3.168 3.298 1.506 0 2.328-.354 3.489-1.54l.167.246c.274.405.456.675 1.047 1.166ZM6.03 8.431C6.03 6.627 7.647 6.3 9.177 6.3v.57c.001.776.002 1.434-.396 2.133-.336.595-.87.961-1.465.961-.812 0-1.286-.619-1.286-1.533" fill="currentColor"/>
@@ -118,15 +125,17 @@ export default function IntegrationPage() {
 
     if (!hasLoadedOnce || isInitialState) {
       void loadShopifyStatus();
-      void loadEbayStatus();
-      void loadEtsyStatus();
+      // Restore these status checks when eBay/Etsy are enabled again.
+      // void loadEbayStatus();
+      // void loadEtsyStatus();
       return;
     }
 
     if (shouldRefresh()) {
       void loadShopifyStatus();
-      void loadEbayStatus();
-      void loadEtsyStatus();
+      // Restore these refresh checks when eBay/Etsy are enabled again.
+      // void loadEbayStatus();
+      // void loadEtsyStatus();
     }
   }, [ebayState, etsyState, hasLoadedOnce, loadEbayStatus, loadEtsyStatus, loadShopifyStatus, shopifyState, shouldRefresh]);
 
@@ -136,6 +145,21 @@ export default function IntegrationPage() {
     const message = searchParams.get("message");
 
     if (!marketplace || !status) {
+      return;
+    }
+
+    if (isComingSoonMarketplace(marketplace)) {
+      startTransition(() => {
+        setBanner({
+          type: "info",
+          message: `${marketplace === "ebay" ? "eBay" : "Etsy"} is marked as Coming Soon for this release.`,
+        });
+      });
+      if (marketplace === "ebay") {
+        setConnectingEbay(false);
+      } else {
+        setConnectingEtsy(false);
+      }
       return;
     }
 
@@ -256,21 +280,25 @@ export default function IntegrationPage() {
         id: "ebay",
         title: "eBay",
         subtitle: "Global Retail",
-        description: "Connect your eBay seller account to prepare for future marketplace workflows in CommandCtr.",
+        description: "eBay marketplace workflows are planned for a future CommandCtr release.",
         icon: <EbayIcon className="h-5 w-12" />,
         themeBg: "bg-[#0064d2]",
-        badgeText: ebayState.connected ? "CONNECTED" : null,
-        interactive: true,
+        // Restore live connected badge when eBay goes live:
+        // badgeText: ebayState.connected ? "CONNECTED" : null,
+        badgeText: "COMING SOON",
+        interactive: false,
       },
       {
         id: "etsy",
         title: "Etsy",
         subtitle: "Handmade & Vintage",
-        description: "Connect your Etsy shop to sync and manage your listings and handmade inventory in CommandCtr.",
+        description: "Etsy shop sync and listing management are planned for a future CommandCtr release.",
         icon: <EtsyIcon className="h-7 w-7" />,
         themeBg: "bg-[#F1641E]",
-        badgeText: etsyState.connected ? "CONNECTED" : null,
-        interactive: true,
+        // Restore live connected badge when Etsy goes live:
+        // badgeText: etsyState.connected ? "CONNECTED" : null,
+        badgeText: "COMING SOON",
+        interactive: false,
       },
       {
         id: "shopify",
@@ -283,13 +311,13 @@ export default function IntegrationPage() {
         interactive: true,
       },
     ],
-    [ebayState.connected, etsyState.connected, shopifyState.connected],
+    [shopifyState.connected],
   );
   const renderCollapsedFooter = (platformId: string) => {
     let statusClass = "status-dot-disconnected";
     let tooltip = "Not Connected";
 
-    if (platformId === "amazon" || platformId === "tiktok") {
+    if (platformId === "amazon" || platformId === "tiktok" || isComingSoonMarketplace(platformId)) {
       statusClass = "status-dot-coming-soon";
       tooltip = "Coming Soon";
     } else if (platformId === "ebay" && ebayState.connected) {
@@ -311,6 +339,21 @@ export default function IntegrationPage() {
   };
 
   const renderExpandedFooter = (platformId: string) => {
+    if (isComingSoonMarketplace(platformId)) {
+      return (
+        <button
+          className="btn-premium btn-secondary-outline cursor-not-allowed opacity-60"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpenPlatform(platformId === "ebay" ? "eBay" : "Etsy");
+          }}
+        >
+          Coming Soon
+        </button>
+      );
+    }
+
     if (platformId === "ebay") {
       if (!ebayState.connected) {
         return (
@@ -553,6 +596,7 @@ export default function IntegrationPage() {
                           <div className="row-description">
                             <div className="overflow-hidden">
                               <p className="description-text">{platform.description}</p>
+                              {/* Restore live eBay account details when eBay goes live again.
                               {platform.id === "ebay" && ebayState.connected ? (
                                 <div className="mt-3">
                                   <span className="connected-store">
@@ -560,6 +604,8 @@ export default function IntegrationPage() {
                                   </span>
                                 </div>
                               ) : null}
+                              */}
+                              {/* Restore live Etsy account details when Etsy goes live again.
                               {platform.id === "etsy" && etsyState.connected ? (
                                 <div className="mt-3">
                                   <span className="connected-store">
@@ -567,6 +613,7 @@ export default function IntegrationPage() {
                                   </span>
                                 </div>
                               ) : null}
+                              */}
                               {platform.id === "shopify" && shopifyState.connected && shopifyState.shopDomain ? (
                                 <div className="mt-3 space-y-2">
                                   <span className="connected-store">

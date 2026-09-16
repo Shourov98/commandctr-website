@@ -270,7 +270,7 @@ export default function SupportPage() {
               </div>
 
               <p className="text-sm font-medium text-[#7f90ae]">
-                Amazon, eBay, and TikTok dispute tracking coming later.
+                Amazon, eBay, Etsy, and TikTok dispute tracking coming later.
               </p>
             </div>
 

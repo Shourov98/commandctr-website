@@ -408,8 +408,11 @@ const filterOptions = [
   { key: "source", label: "Source Upload", icon: Upload },
   { key: "transparent_cutout", label: "Transparent Cutout", icon: Scissors },
   { key: "amazon", label: "Amazon Main", icon: AmazonLogo },
-  { key: "ebay", label: "eBay Main", icon: EbayLogo },
-  { key: "etsy", label: "Etsy Hero", icon: EtsyLogo },
+  // Restore active eBay/Etsy filter labels when those channels go live again.
+  // { key: "ebay", label: "eBay Main", icon: EbayLogo },
+  // { key: "etsy", label: "Etsy Hero", icon: EtsyLogo },
+  { key: "ebay", label: "eBay Coming Soon", icon: EbayLogo },
+  { key: "etsy", label: "Etsy Coming Soon", icon: EtsyLogo },
   { key: "tiktok", label: "TikTok Shop", icon: TikTokLogo },
   { key: "shopify", label: "Shopify Composition", icon: ShopifyLogo },
 ];
@@ -423,6 +426,12 @@ const marketLabels: Record<MarketKey, string> = {
   tiktok: "TikTok Shop",
   shopify: "Shopify",
 };
+
+const COMING_SOON_MARKETS: ReadonlySet<MarketKey> = new Set(["ebay", "etsy"]);
+
+function isComingSoonMarket(market: string): market is MarketKey {
+  return market === "ebay" || market === "etsy";
+}
 
 const marketIcons: Record<MarketKey, React.ComponentType<{ className?: string; mode?: "light" | "dark" }>> = {
   amazon: AmazonLogo,
@@ -1587,7 +1596,9 @@ function researchToPricingSnapshot(
     return null;
   }
 
-  const marketKeys: MarketKey[] = ["amazon", "ebay", "etsy", "tiktok", "shopify"];
+  // Restore eBay/Etsy here when those channels go live again:
+  // const marketKeys: MarketKey[] = ["amazon", "ebay", "etsy", "tiktok", "shopify"];
+  const marketKeys: MarketKey[] = ["amazon", "tiktok", "shopify"];
   const generatedAt = new Date().toISOString();
   const markets = marketKeys
     .map((key): ApiMarketplacePricingSnapshot | null => {
@@ -1774,6 +1785,26 @@ function MarketTabLink({
     : `/products/add?market=${market}${suffix}`;
   const IconComponent = marketIcons[market];
   const styles = marketTabStyles[market];
+
+  if (COMING_SOON_MARKETS.has(market)) {
+    return (
+      <button
+        className={`group inline-flex cursor-not-allowed items-center gap-2 rounded-full px-4.5 py-2 text-xs font-bold opacity-75 transition-all duration-300 ${
+          active ? styles.active : styles.inactive
+        }`}
+        title={`${marketLabels[market]} is coming soon`}
+        type="button"
+      >
+        <IconComponent
+          className={`h-4 w-4 shrink-0 grayscale opacity-50 transition-all duration-300 ${active ? "grayscale-0 opacity-80" : ""}`}
+          mode={active && market === "tiktok" ? "dark" : "light"}
+        />
+        <span>{marketLabels[market]}</span>
+        <span className="rounded-full bg-[#35bfc8]/15 px-2 py-0.5 text-[10px] font-bold text-[#1b9fac]">Soon</span>
+      </button>
+    );
+  }
+
   return (
     <Link
       className={`group inline-flex items-center gap-2 rounded-full px-4.5 py-2 text-xs font-bold transition-all duration-300 ${
@@ -2599,7 +2630,9 @@ export default function AddProductEditor({
   const [prevActiveMarket, setPrevActiveMarket] = useState<MarketKey>(activeMarket);
   if (activeMarket !== prevActiveMarket) {
     setPrevActiveMarket(activeMarket);
-    setSelectedPublishShop(activeMarket);
+    // Restore direct eBay/Etsy publish target sync when those markets go live again.
+    // setSelectedPublishShop(activeMarket);
+    setSelectedPublishShop(isComingSoonMarket(activeMarket) ? "shopify" : activeMarket);
   }
   const [shopifyProductId, setShopifyProductId] = useState<string | null>(null);
   const [ebayListingId, setEbayListingId] = useState<string | null>(null);
@@ -3673,8 +3706,11 @@ export default function AddProductEditor({
       { key: "source", label: "Source Upload", image: draft.images.source, note: "Original upload stored for audit and regeneration." },
       { key: "transparent_cutout", label: "Transparent Cutout", image: draft.images.transparent_cutout, note: "Used for white-background and styled marketplace compositions." },
       { key: "amazon", label: "Amazon Main", image: draft.images.amazon, note: "Marketplace-ready main image." },
-      { key: "ebay", label: "eBay Main", image: draft.images.ebay, note: "Marketplace-ready main image." },
-      { key: "etsy", label: "Etsy Hero", image: draft.images.etsy, note: "Styled Etsy marketplace image." },
+      // Restore active eBay/Etsy image card labels when those channels go live again.
+      // { key: "ebay", label: "eBay Main", image: draft.images.ebay, note: "Marketplace-ready main image." },
+      // { key: "etsy", label: "Etsy Hero", image: draft.images.etsy, note: "Styled Etsy marketplace image." },
+      { key: "ebay", label: "eBay Coming Soon", image: draft.images.ebay, note: "eBay marketplace image is preserved for reuse when the channel goes live." },
+      { key: "etsy", label: "Etsy Coming Soon", image: draft.images.etsy, note: "Etsy marketplace image is preserved for reuse when the channel goes live." },
       { key: "tiktok", label: "TikTok Hero", image: draft.images.tiktok, note: "Styled vertical marketplace image." },
       { key: "shopify", label: "Shopify Hero", image: draft.images.shopify, note: "Storefront hero image." },
     ],
@@ -4239,6 +4275,13 @@ export default function AddProductEditor({
   }
 
   async function uploadToEbay(mode: "active" | "draft") {
+    if (COMING_SOON_MARKETS.has("ebay")) {
+      const message = "eBay publishing is coming soon.";
+      setShopifyPublishMessage(message);
+      setStatusMessage(message);
+      return;
+    }
+
     const title = safeTrim(draft.ebay.title) || getPublishTitle();
     const trimmedPrice = publishPrice.trim();
     const trimmedSku = publishSku.trim();
@@ -4540,6 +4583,13 @@ export default function AddProductEditor({
   }
 
   async function uploadToMockShop(shop: string, mode: "active" | "draft") {
+    if (isComingSoonMarket(shop)) {
+      const message = `${marketLabels[shop]} upload is coming soon.`;
+      setShopifyPublishMessage(message);
+      setStatusMessage(message);
+      return;
+    }
+
     if (shop === "ebay") {
       const message = "eBay is no longer simulated here. Use Publish to eBay Sandbox for the real flow.";
       setShopifyPublishMessage(message);
@@ -4665,11 +4715,13 @@ export default function AddProductEditor({
       shopify: true,
       commandctr: true,
       amazon: true,
-      ebay: true,
+      // Restore eBay bulk upload state when eBay goes live again.
+      ebay: false,
       tiktok: true,
-      etsy: true,
+      // Restore Etsy bulk upload state when Etsy goes live again.
+      etsy: false,
     });
-    setShopifyPublishMessage("Uploading to all target shops simultaneously...");
+    setShopifyPublishMessage("Uploading to available target shops. eBay and Etsy are coming soon.");
 
     try {
       const results = await Promise.allSettled([
@@ -4732,7 +4784,9 @@ export default function AddProductEditor({
           setPublishSubmitting((prev) => ({ ...prev, commandctr: false }));
         }),
 
-        ...(["amazon", "ebay", "tiktok", "etsy"] as MarketKey[]).map(async (shop) => {
+        // Restore eBay/Etsy in this target list when those channels go live again:
+        // ...(["amazon", "ebay", "tiktok", "etsy"] as MarketKey[]).map(async (shop) => {
+        ...(["amazon", "tiktok"] as MarketKey[]).map(async (shop) => {
           try {
             if (shop === "ebay") {
               return "eBay: Use the dedicated eBay Sandbox publish button for the real publish flow.";
@@ -4762,7 +4816,7 @@ export default function AddProductEditor({
       });
 
       const successCount = results.filter((res) => res.status === "fulfilled").length;
-      const combinedMsg = `Uploaded to ${successCount}/6 channels:\n` + messages.join("\n");
+      const combinedMsg = `Uploaded to ${successCount}/4 available channels. eBay and Etsy are coming soon:\n` + messages.join("\n");
       setShopifyPublishMessage(combinedMsg);
       setStatusMessage(combinedMsg);
     } catch {
@@ -4827,7 +4881,9 @@ export default function AddProductEditor({
         router.replace(`/products/add?market=${activeMarket}&productId=${generatedProductId}`, { scroll: false });
       }
       clearSelectedImageSelection();
-      await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "ebay", "etsy", "tiktok", "shopify"], successMessage);
+      // Restore eBay/Etsy generation when those channels go live again:
+      // await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "ebay", "etsy", "tiktok", "shopify"], successMessage);
+      await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "tiktok", "shopify"], successMessage);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Product generation failed.";
@@ -5682,14 +5738,17 @@ export default function AddProductEditor({
 
       setMarketImageGenerating({
         amazon: true,
-        ebay: true,
-        etsy: true,
+        // Restore eBay/Etsy image generation spinners when those channels go live again.
+        ebay: false,
+        etsy: false,
         tiktok: true,
         shopify: true,
       });
       try {
         let latestRecord: ImportApiRecord | null = null;
-        for (const market of ["amazon", "ebay", "etsy", "tiktok", "shopify"] as MarketKey[]) {
+        // Restore eBay/Etsy image generation when those channels go live again:
+        // for (const market of ["amazon", "ebay", "etsy", "tiktok", "shopify"] as MarketKey[]) {
+        for (const market of ["amazon", "tiktok", "shopify"] as MarketKey[]) {
           const response = await fetch(`/api/product-ai/imports/products/${currentImportRecordId}/marketplaces/${market}/regenerate`, {
             method: "POST",
           });
@@ -5734,7 +5793,9 @@ export default function AddProductEditor({
 
     await generateMarketplaceSectionsInParallel(
       productId,
-      ["amazon", "ebay", "etsy", "tiktok", "shopify"],
+      // Restore eBay/Etsy generation when those channels go live again:
+      // ["amazon", "ebay", "etsy", "tiktok", "shopify"],
+      ["amazon", "tiktok", "shopify"],
       "All marketplace content and image generations complete.",
     );
   }
@@ -6291,7 +6352,7 @@ export default function AddProductEditor({
                   <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
                   <button
                     className="group inline-flex w-36 items-center justify-center gap-1.5 rounded-full bg-[#e8f2ff] border border-[#c2ddff] py-1.5 text-xs font-bold text-[#2b7cf5] hover:bg-[#2b7cf5] hover:text-white hover:border-[#2b7cf5] hover:shadow-[0_4px_12px_rgba(43,124,245,0.15)] transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!hasPersistedProduct || marketRegenerating[activeMarket]}
+                    disabled={!hasPersistedProduct || marketRegenerating[activeMarket] || isComingSoonMarket(activeMarket)}
                     onClick={() => void optimizeMarketplace(activeMarket)}
                     type="button"
                   >
@@ -6306,6 +6367,15 @@ export default function AddProductEditor({
               </div>
 
               <div className="mt-5 grid gap-4">
+                {isComingSoonMarket(activeMarket) ? (
+                  <div className="rounded-2xl border border-dashed border-[#bde8ee] bg-[#f2fdff] px-5 py-6 text-sm leading-6 text-[#4f6f85]">
+                    <p className="text-base font-bold text-[#1f8f9b]">{marketLabels[activeMarket]} is Coming Soon</p>
+                    <p className="mt-1">
+                      The generated {marketLabels[activeMarket]} content is preserved in the draft, but editing, optimization, and publishing are paused for this release.
+                    </p>
+                  </div>
+                ) : null}
+
                 {activeMarket === "amazon" ? (
                   <>
                     <EditableField
@@ -6340,7 +6410,7 @@ export default function AddProductEditor({
                   </>
                 ) : null}
 
-                {activeMarket === "ebay" ? (
+                {activeMarket === "ebay" && !isComingSoonMarket(activeMarket) ? (
                   <>
                     <EditableField
                       label="Marketplace Title"
@@ -6518,7 +6588,7 @@ export default function AddProductEditor({
                   </>
                 ) : null}
 
-                {activeMarket === "etsy" ? (
+                {activeMarket === "etsy" && !isComingSoonMarket(activeMarket) ? (
                   <>
                     <EditableField
                       label="Marketplace Title"
@@ -8647,7 +8717,7 @@ export default function AddProductEditor({
                   </>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-[#dbe2ee] bg-white px-4 py-4 text-sm leading-6 text-[#667a99]">
-                    Refresh marketplace pricing after generating the product draft to get estimated sell ranges for Amazon, eBay, Etsy, TikTok Shop, and Shopify.
+                    Refresh marketplace pricing after generating the product draft to get estimated sell ranges for Amazon, TikTok Shop, and Shopify. eBay and Etsy are coming soon.
                   </div>
                 )}
               </div>
@@ -8659,18 +8729,26 @@ export default function AddProductEditor({
                     {[
                       { key: "commandctr", label: "CommandCtr DB" },
                       { key: "amazon", label: "Amazon" },
-                      { key: "ebay", label: "eBay" },
-                      { key: "etsy", label: "Etsy" },
+                      // Restore active eBay/Etsy publish target labels when those channels go live again.
+                      // { key: "ebay", label: "eBay" },
+                      // { key: "etsy", label: "Etsy" },
+                      { key: "ebay", label: "eBay Coming Soon" },
+                      { key: "etsy", label: "Etsy Coming Soon" },
                       { key: "tiktok", label: "TikTok Shop" },
                       { key: "shopify", label: "Shopify" }
                     ].map((target) => {
                       const isSelected = selectedPublishShop === target.key;
                       const styles = publishTabStyles[target.key as PublishTarget];
+                      const isPausedTarget = isComingSoonMarket(target.key);
                       return (
                         <button
                           key={target.key}
                           type="button"
                           onClick={() => {
+                            if (isPausedTarget) {
+                              setShopifyPublishMessage(`${marketLabels[target.key as MarketKey]} publishing is coming soon.`);
+                              return;
+                            }
                             setSelectedPublishShop(target.key as PublishTarget);
                             if (target.key !== "commandctr") {
                               const persistedId = productId ?? backendProductId;
@@ -8680,7 +8758,9 @@ export default function AddProductEditor({
                           }}
                           className={`group inline-flex h-9.5 items-center justify-center gap-2 rounded-lg px-4.5 text-xs font-bold transition-all duration-300 cursor-pointer ${
                             isSelected ? styles.active : styles.inactive
-                          }`}
+                          } ${isPausedTarget ? "cursor-not-allowed opacity-65" : ""}`}
+                          disabled={isPausedTarget}
+                          title={isPausedTarget ? `${marketLabels[target.key as MarketKey]} is coming soon` : undefined}
                         >
                           {target.key === "amazon" && (
                             <AmazonLogo
@@ -8753,6 +8833,12 @@ export default function AddProductEditor({
                       className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-[#172544] px-4 text-xs font-bold text-white shadow-xs hover:opacity-90 active:scale-98 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
                       disabled={publishSubmitting[selectedPublishShop]}
                       onClick={() => {
+                        if (isComingSoonMarket(selectedPublishShop)) {
+                          const message = `${marketLabels[selectedPublishShop]} publishing is coming soon.`;
+                          setShopifyPublishMessage(message);
+                          setStatusMessage(message);
+                          return;
+                        }
                         if (selectedPublishShop === "shopify") {
                           void uploadToShopify("active");
                         } else if (selectedPublishShop === "ebay") {
@@ -8772,8 +8858,8 @@ export default function AddProductEditor({
                         ? `Uploading to ${marketLabels[selectedPublishShop as MarketKey]}...`
                         : selectedPublishShop === "shopify" && shopifyProductId
                           ? "Update on Shopify"
-                          : selectedPublishShop === "ebay"
-                            ? "Publish to eBay Sandbox"
+                          : isComingSoonMarket(selectedPublishShop)
+                            ? `${marketLabels[selectedPublishShop]} Coming Soon`
                           : `Upload to ${marketLabels[selectedPublishShop as MarketKey]}`}
                     </button>
                   )}
@@ -8789,7 +8875,7 @@ export default function AddProductEditor({
                     ) : (
                       <Sparkles className="h-3.5 w-3.5 text-[#35d3ce]" />
                     )}
-                    Upload to All Shops
+                    Upload to Available Shops
                   </button>
                 </div>
               </div>
@@ -8799,8 +8885,10 @@ export default function AddProductEditor({
                 <ul className="list-disc pl-4 space-y-1">
                   <li><strong>Shopify</strong>: Fully integrated upload and update support via active endpoints.</li>
                   <li><strong>CommandCtr DB</strong>: Saves the current product draft to the local SQLite database.</li>
-                  <li><strong>eBay</strong>: Uses the real eBay Sandbox publish flow through the backend job worker.</li>
-                  <li><strong>Amazon, TikTok Shop, Etsy</strong>: Simulated upload integration. Click to test output listings.</li>
+                  {/* Restore this eBay line when eBay goes live again. */}
+                  {/* <li><strong>eBay</strong>: Uses the real eBay Sandbox publish flow through the backend job worker.</li> */}
+                  <li><strong>eBay, Etsy</strong>: Coming Soon. Existing generated data is preserved for reuse.</li>
+                  <li><strong>Amazon, TikTok Shop</strong>: Simulated upload integration. Click to test output listings.</li>
                 </ul>
               </div>
               {selectedPublishShop === "shopify" && shopifyProductId ? (
@@ -8808,7 +8896,7 @@ export default function AddProductEditor({
                   Current Shopify product ID:
                   <span className="ml-2 font-semibold text-[#31415e]">{shopifyProductId}</span>
                 </div>
-              ) : selectedPublishShop === "ebay" && backendProductId ? (
+              ) : selectedPublishShop === "ebay" && backendProductId && !isComingSoonMarket(selectedPublishShop) ? (
                 <div className="mt-4 space-y-3">
                   <div className="rounded-2xl border border-[#dbe2ee] bg-white px-4 py-3 text-xs leading-6 text-[#667a99]">
                     Current backend product ID:

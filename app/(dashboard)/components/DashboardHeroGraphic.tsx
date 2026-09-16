@@ -94,13 +94,13 @@ const platformCards: PlatformCard[] = [
   },
   {
     platform: "eBay",
-    status: "Optimized",
+    status: "Coming Soon",
     tone: "ebay",
     className: "bottom-[9.8%] right-[8.8%] md:bottom-[11.4%] md:right-[12.2%]",
   },
   {
     platform: "Etsy",
-    status: "Synced",
+    status: "Coming Soon",
     tone: "etsy",
     className: "bottom-[6%] left-[50%] -translate-x-1/2 md:bottom-[6.5%] md:left-[50%]",
   },
@@ -177,7 +177,7 @@ function PlatformCardItem({ platform, status, tone, className }: PlatformCard) {
         </span>
       ) : tone === "etsy" ? (
         <span className="absolute -bottom-5 right-4 z-30 -rotate-[2.5deg] rounded-lg bg-[#F1641E] px-2.5 py-1 text-[13px] font-bold leading-none text-white shadow-[0_10px_24px_-16px_rgba(241,100,30,0.95)] md:-bottom-6 md:right-5 md:text-[12px]">
-          Synced
+          Coming Soon
         </span>
       ) : null}
     </article>
@@ -283,15 +283,17 @@ export default function DashboardHeroGraphic() {
 
   const shopifyPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "shopify"), [overview]);
   const amazonPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "amazon"), [overview]);
-  const ebayPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "ebay"), [overview]);
+  // eBay metrics are intentionally paused for the current release. Restore when eBay goes live.
+  // const ebayPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "ebay"), [overview]);
   const tiktokPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "tiktok"), [overview]);
-  const etsyPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "etsy"), [overview]);
+  // Etsy metrics are intentionally paused for the current release. Restore when Etsy goes live.
+  // const etsyPlatform = useMemo(() => overview?.platformBalances?.find(b => b.platform === "etsy"), [overview]);
 
   const shopifyBalance = shopifyPlatform?.amount ?? 0;
   const amazonBalance = amazonPlatform?.amount ?? 0;
-  const ebayBalance = ebayPlatform?.amount ?? 0;
+  // const ebayBalance = ebayPlatform?.amount ?? 0;
   const tiktokBalance = tiktokPlatform?.amount ?? 0;
-  const etsyBalance = etsyPlatform?.amount ?? 0;
+  // const etsyBalance = etsyPlatform?.amount ?? 0;
 
   const targetAmounts = useMemo(() => {
     if (!overview) {
@@ -299,18 +301,21 @@ export default function DashboardHeroGraphic() {
         shopify: CHANNEL_METRICS.shopify.endAmount,
         amazon: CHANNEL_METRICS.amazon.endAmount,
         tiktok: CHANNEL_METRICS.tiktok.endAmount,
-        ebay: CHANNEL_METRICS.ebay.endAmount,
-        etsy: CHANNEL_METRICS.etsy.endAmount,
+        ebay: 0,
+        etsy: 0,
       };
     }
     return {
       shopify: shopifyBalance,
       amazon: amazonBalance,
       tiktok: tiktokBalance,
-      ebay: ebayBalance,
-      etsy: etsyBalance,
+      // Restore live balances when eBay/Etsy go live:
+      // ebay: ebayBalance,
+      // etsy: etsyBalance,
+      ebay: 0,
+      etsy: 0,
     };
-  }, [overview, shopifyBalance, amazonBalance, tiktokBalance, ebayBalance, etsyBalance]);
+  }, [overview, shopifyBalance, amazonBalance, tiktokBalance]);
 
   const initialAmounts = useMemo(() => {
     if (!overview) {
@@ -318,8 +323,8 @@ export default function DashboardHeroGraphic() {
         shopify: CHANNEL_METRICS.shopify.startAmount,
         amazon: CHANNEL_METRICS.amazon.startAmount,
         tiktok: CHANNEL_METRICS.tiktok.startAmount,
-        ebay: CHANNEL_METRICS.ebay.startAmount,
-        etsy: CHANNEL_METRICS.etsy.startAmount,
+        ebay: 0,
+        etsy: 0,
       };
     }
     return {
@@ -373,9 +378,14 @@ export default function DashboardHeroGraphic() {
         };
       }
       if (card.tone === "ebay") {
+        // Restore live eBay state when the channel goes live:
+        // return {
+        //   ...card,
+        //   status: ebayPlatform?.isConnected ? "Optimized" : "Not Connected",
+        // };
         return {
           ...card,
-          status: ebayPlatform?.isConnected ? "Optimized" : "Not Connected",
+          status: "Coming Soon",
         };
       }
       if (card.tone === "tiktok") {
@@ -385,14 +395,19 @@ export default function DashboardHeroGraphic() {
         };
       }
       if (card.tone === "etsy") {
+        // Restore live Etsy state when the channel goes live:
+        // return {
+        //   ...card,
+        //   status: etsyPlatform?.isConnected ? "Synced" : "Not Connected",
+        // };
         return {
           ...card,
-          status: etsyPlatform?.isConnected ? "Synced" : "Not Connected",
+          status: "Coming Soon",
         };
       }
       return card;
     });
-  }, [shopifyConnected, amazonPlatform, ebayPlatform, tiktokPlatform, etsyPlatform]);
+  }, [shopifyConnected, amazonPlatform, tiktokPlatform]);
 
   return (
     <div className="relative h-[440px] w-full overflow-hidden bg-[radial-gradient(ellipse_at_52%_52%,rgba(50,228,232,0.56)_0%,rgba(8,64,106,0.8)_45%,#040d2a_100%)] md:h-[660px]">
@@ -431,17 +446,23 @@ export default function DashboardHeroGraphic() {
         New Order: #8432
       </span>
 
+      {/* eBay live order animation paused while eBay is Coming Soon. Restore this span when eBay goes live.
       <span className="new-order-motion new-order-motion-ebay absolute right-[25.2%] top-[70.7%] z-30 rounded-full border border-[#2d78ff] bg-[#081736]/95 px-3 py-1 text-[12px] font-semibold leading-none text-[#60b6ff] md:right-[26.2%] md:top-[70.3%] md:text-[11px]">
         New Order: #8431
       </span>
+      */}
 
+      {/* Etsy live order animation paused while Etsy is Coming Soon. Restore this span when Etsy goes live.
       <span className="new-order-motion new-order-motion-etsy absolute left-[50%] top-[73%] -translate-x-1/2 z-30 rounded-full border border-[#F1641E] bg-[#071a38]/95 px-3 py-1 text-[12px] font-semibold leading-none text-[#ff8347] md:top-[77%] md:text-[11px]">
         New Order: #SBX-1004
       </span>
+      */}
 
+      {/* eBay SKU update badge paused while eBay is Coming Soon. Restore this span when eBay goes live.
       <span className="absolute bottom-[20.8%] right-[8.4%] z-30 rounded-lg border border-cyan-400/45 bg-[#17313e]/88 px-2.5 py-1 text-[13px] font-bold leading-none text-white/95 md:bottom-[20.4%] md:right-[10.8%] md:text-[12px]">
         SKU-99 Updated
       </span>
+      */}
 
       <CenterOverview amounts={amounts} total={total} />
     </div>

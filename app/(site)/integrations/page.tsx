@@ -148,7 +148,9 @@ export default function IntegrationsPage() {
                     <span className="text-sm font-bold">e</span>
                   </div>
                   <h3 className="text-4xl font-semibold leading-tight">eBay</h3>
-                  <p className="mt-2 text-xl leading-relaxed text-[#a8b8d6]">Global auction and retail site integration for seamless listing.</p>
+                  {/* Restore active eBay description when eBay goes live again. */}
+                  {/* <p className="mt-2 text-xl leading-relaxed text-[#a8b8d6]">Global auction and retail site integration for seamless listing.</p> */}
+                  <p className="mt-2 text-xl leading-relaxed text-[#a8b8d6]">Coming Soon.</p>
                 </article>
               </div>
             </div>

@@ -91,6 +91,10 @@ const marketLabels: Record<MarketKey, string> = {
   shopify: "Shopify",
 };
 
+function isComingSoonMarket(market: MarketKey) {
+  return market === "ebay" || market === "etsy";
+}
+
 function imageUrlFor(path?: string | null) {
   if (!path) return null;
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
@@ -157,8 +161,11 @@ export default function ProductDetailClient({ id, sourceHint }: { id: string; so
       { key: "source", label: "Source Upload", image: images.source },
       { key: "transparent_cutout", label: "Transparent Cutout", image: images.transparent_cutout },
       { key: "amazon", label: "Amazon", image: images.amazon },
-      { key: "ebay", label: "eBay", image: images.ebay },
-      { key: "etsy", label: "Etsy", image: images.etsy },
+      // Restore active eBay/Etsy image labels when those channels go live again.
+      // { key: "ebay", label: "eBay", image: images.ebay },
+      // { key: "etsy", label: "Etsy", image: images.etsy },
+      { key: "ebay", label: "eBay Coming Soon", image: images.ebay },
+      { key: "etsy", label: "Etsy Coming Soon", image: images.etsy },
       { key: "tiktok", label: "TikTok Shop", image: images.tiktok },
       { key: "shopify", label: "Shopify", image: images.shopify },
     ];
@@ -254,21 +261,31 @@ export default function ProductDetailClient({ id, sourceHint }: { id: string; so
         ["Bullet Points", record.product.amazon.bullet_points.join("\n") || "--"],
       ],
     },
+    // Restore active eBay content when eBay goes live again.
+    // {
+    //   label: "eBay",
+    //   fields: [
+    //     ["Title", record.product.ebay.title],
+    //     ["Condition", record.product.ebay.condition],
+    //     ["Listing Notes", record.product.ebay.listing_notes],
+    //   ],
+    // },
     {
-      label: "eBay",
-      fields: [
-        ["Title", record.product.ebay.title],
-        ["Condition", record.product.ebay.condition],
-        ["Listing Notes", record.product.ebay.listing_notes],
-      ],
+      label: "eBay Coming Soon",
+      fields: [["Status", "Coming Soon"]],
     },
+    // Restore active Etsy content when Etsy goes live again.
+    // {
+    //   label: "Etsy",
+    //   fields: [
+    //     ["Title", record.product.etsy.title],
+    //     ["Description", record.product.etsy.description],
+    //     ["Tags", record.product.etsy.tags.join(", ") || "--"],
+    //   ],
+    // },
     {
-      label: "Etsy",
-      fields: [
-        ["Title", record.product.etsy.title],
-        ["Description", record.product.etsy.description],
-        ["Tags", record.product.etsy.tags.join(", ") || "--"],
-      ],
+      label: "Etsy Coming Soon",
+      fields: [["Status", "Coming Soon"]],
     },
     {
       label: "TikTok Shop",
@@ -352,7 +369,12 @@ export default function ProductDetailClient({ id, sourceHint }: { id: string; so
                 {(Object.keys(record.variants) as MarketKey[]).map((market) => (
                   <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4" key={market}>
                     <p className="text-sm font-semibold text-[#20314d]">{marketLabels[market]}</p>
-                    {record.variants[market]?.length ? (
+                    {isComingSoonMarket(market) ? (
+                      <>
+                        {/* Restore generated variant display for eBay/Etsy when those channels go live again. */}
+                        <p className="mt-3 text-sm font-semibold text-[#35bfc8]">Coming Soon</p>
+                      </>
+                    ) : record.variants[market]?.length ? (
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         {record.variants[market].map((variant) => (
                           <div className="rounded-xl border border-[#d5dcea] bg-white px-4 py-3" key={variant.id}>

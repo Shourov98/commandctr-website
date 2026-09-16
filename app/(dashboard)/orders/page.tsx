@@ -42,7 +42,9 @@ function PlatformBadge({ platform }: { platform: OrderRow["platform"] }) {
   }
 
   if (platform === "EBAY") {
-    return <span className="rounded-full bg-[#0b72de] px-3 py-1 text-xs font-semibold text-white">EBAY</span>;
+    // Restore active eBay order badge when eBay goes live again.
+    // return <span className="rounded-full bg-[#0b72de] px-3 py-1 text-xs font-semibold text-white">EBAY</span>;
+    return <span className="rounded-full bg-[#30415f] px-3 py-1 text-xs font-semibold text-[#c9d5ef]">EBAY SOON</span>;
   }
 
   if (platform === "SHOPIFY") {
@@ -50,7 +52,9 @@ function PlatformBadge({ platform }: { platform: OrderRow["platform"] }) {
   }
 
   if (platform === "ETSY") {
-    return <span className="rounded-full bg-[#F1641E] px-3 py-1 text-xs font-semibold text-white">ETSY</span>;
+    // Restore active Etsy order badge when Etsy goes live again.
+    // return <span className="rounded-full bg-[#F1641E] px-3 py-1 text-xs font-semibold text-white">ETSY</span>;
+    return <span className="rounded-full bg-[#30415f] px-3 py-1 text-xs font-semibold text-[#c9d5ef]">ETSY SOON</span>;
   }
 
   if (platform === "OTHER") {
@@ -131,7 +135,7 @@ export default function OrdersPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h1 className="text-xl font-semibold">Unified Order Feed</h1>
-              <p className="mt-1 text-sm text-[#a9b8d6]">Manage stock levels across Amazon, TikTok, and eBay</p>
+              <p className="mt-1 text-sm text-[#a9b8d6]">Manage Shopify orders now. eBay and Etsy are coming soon.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button

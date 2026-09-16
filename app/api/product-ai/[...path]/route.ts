@@ -113,7 +113,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      const DEFAULT_OUTPUT_ROOT = path.resolve(process.cwd(), "../product-ai-agent/output");
+      const DEFAULT_OUTPUT_ROOT = path.resolve(process.cwd(), "../commandctr-ai-agent/output");
       const allowedRoot = path.resolve(process.env.PRODUCT_AI_AGENT_OUTPUT_ROOT ?? DEFAULT_OUTPUT_ROOT);
 
       // Ensure output directory exists

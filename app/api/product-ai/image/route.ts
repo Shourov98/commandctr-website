@@ -4,8 +4,12 @@ import path from "node:path";
 
 import { NextRequest, NextResponse } from "next/server";
 
-const DEFAULT_OUTPUT_ROOT = path.resolve(process.cwd(), "../product-ai-agent/output");
+const DEFAULT_OUTPUT_ROOT = path.resolve(process.cwd(), "../commandctr-ai-agent/output");
 const RENDER_OUTPUT_ROOT_PREFIX = "/opt/render/project/src/output/";
+const LEGACY_LOCAL_OUTPUT_ROOT_PREFIXES = [
+  "/home/shourov/Documents/work_projects/commandctr/product-ai-agent/output/",
+  "/home/shourov/Documents/work_projects/commandctr/commandctr-ai-agent/output/",
+];
 
 function getAllowedRoot() {
   return path.resolve(process.env.PRODUCT_AI_AGENT_OUTPUT_ROOT ?? DEFAULT_OUTPUT_ROOT);
@@ -21,6 +25,13 @@ function mapKnownAbsoluteOutputPath(rawPath: string, allowedRoot: string) {
   if (normalizedPath.startsWith(RENDER_OUTPUT_ROOT_PREFIX)) {
     const relativeOutputPath = normalizedPath.slice(RENDER_OUTPUT_ROOT_PREFIX.length);
     return path.resolve(allowedRoot, relativeOutputPath);
+  }
+
+  for (const legacyPrefix of LEGACY_LOCAL_OUTPUT_ROOT_PREFIXES) {
+    if (normalizedPath.startsWith(legacyPrefix)) {
+      const relativeOutputPath = normalizedPath.slice(legacyPrefix.length);
+      return path.resolve(allowedRoot, relativeOutputPath);
+    }
   }
 
   return null;

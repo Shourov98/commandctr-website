@@ -154,7 +154,7 @@ export default function ProfileSettingsPage() {
             <div className="flex justify-center md:justify-end gap-3 flex-wrap">
               <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-center">
                 <p className="text-[10px] uppercase font-bold text-[#8ea0c6]/70 tracking-widest">Linked Channels</p>
-                <p className="text-lg font-extrabold text-[#0ad0e1]">3 Storefronts</p>
+                <p className="text-lg font-extrabold text-[#0ad0e1]">1 Active Storefront</p>
               </div>
               <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-center">
                 <p className="text-[10px] uppercase font-bold text-[#8ea0c6]/70 tracking-widest">Platform Role</p>
@@ -400,10 +400,14 @@ export default function ProfileSettingsPage() {
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#0064d2] text-[10px] font-bold text-white">E</span>
                     <div>
                       <p className="text-xs font-bold text-slate-800">eBay Global</p>
-                      <p className="text-[10px] text-slate-400 font-medium">Auto-Sync Enabled</p>
+                      {/* Restore this live status when eBay goes live again. */}
+                      {/* <p className="text-[10px] text-slate-400 font-medium">Auto-Sync Enabled</p> */}
+                      <p className="text-[10px] text-slate-400 font-medium">Coming Soon</p>
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-[#32cbc6]">$2,100.43</span>
+                  {/* Restore live eBay balance when eBay goes live again. */}
+                  {/* <span className="text-xs font-bold text-[#32cbc6]">$2,100.43</span> */}
+                  <span className="text-xs font-bold text-[#8ea0bf]">$0.00</span>
                 </div>
               </div>
             </article>

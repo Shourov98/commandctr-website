@@ -47,6 +47,15 @@ function EmptyChannelCell() {
   );
 }
 
+function ComingSoonChannelCell() {
+  return (
+    <>
+      <div className="mx-auto text-sm font-semibold text-[#7f8da8]">--</div>
+      <p className="mt-1 text-xs font-semibold text-[#35bfc8]">Coming Soon</p>
+    </>
+  );
+}
+
 function downloadCsv(rows: InventoryRow[]) {
   const header = [
     "Title",
@@ -102,10 +111,12 @@ export default function InventoryPage() {
   const loadInventory = useInventoryPageStore((state) => state.loadInventory);
   const importInventory = useInventoryPageStore((state) => state.importInventory);
   const updateMasterCountDraft = useInventoryPageStore((state) => state.updateMasterCountDraft);
-  const updateEbayQuantityDraft = useInventoryPageStore((state) => state.updateEbayQuantityDraft);
+  // Restore this eBay draft updater when eBay inventory editing goes live again.
+  // const updateEbayQuantityDraft = useInventoryPageStore((state) => state.updateEbayQuantityDraft);
   const updateSafetyBufferDraft = useInventoryPageStore((state) => state.updateSafetyBufferDraft);
   const saveMasterCount = useInventoryPageStore((state) => state.saveMasterCount);
-  const saveEbayQuantity = useInventoryPageStore((state) => state.saveEbayQuantity);
+  // Restore this eBay save handler when eBay inventory editing goes live again.
+  // const saveEbayQuantity = useInventoryPageStore((state) => state.saveEbayQuantity);
   const saveSafetyBuffer = useInventoryPageStore((state) => state.saveSafetyBuffer);
 
   useEffect(() => {
@@ -303,7 +314,7 @@ export default function InventoryPage() {
                   </th>
                   <th className="w-[150px] bg-[#0b72de] px-4 py-4 text-center">
                     <p className="text-sm normal-case text-white">eb eBay</p>
-                    <p className="mt-1 text-[11px] normal-case text-white">Inventory</p>
+                    <p className="mt-1 text-[11px] normal-case text-white">Coming Soon</p>
                   </th>
                   <th className="w-[150px] bg-gradient-to-r from-[#00d4d1] via-[#0ea4d6] to-[#eb0f67] px-4 py-4 text-center">
                     <p className="text-sm normal-case text-white">♪ TikTok</p>
@@ -311,7 +322,7 @@ export default function InventoryPage() {
                   </th>
                   <th className="w-[150px] bg-[#F1641E] px-4 py-4 text-center">
                     <p className="text-sm normal-case text-white">Etsy</p>
-                    <p className="mt-1 text-[11px] normal-case text-white">Inventory</p>
+                    <p className="mt-1 text-[11px] normal-case text-white">Coming Soon</p>
                   </th>
                   <th className="w-[140px] bg-[#233a69] px-4 py-4 text-center">Safety Buffer</th>
                   <th className="w-[120px] bg-[#233a69] px-4 py-4 text-center">Available</th>
@@ -361,7 +372,8 @@ export default function InventoryPage() {
                               <p className="mt-0.5 text-xs text-[#9aa5bc]">
                                 {item.locationName || "No location"}
                                 {item.shopifyProductId ? ` • ${item.shopifyProductId}` : ""}
-                                {item.ebayListingId ? ` • eBay ${item.ebayListingId}` : ""}
+                                {/* Restore the eBay listing hint when eBay goes live again. */}
+                                {/* {item.ebayListingId ? ` • eBay ${item.ebayListingId}` : ""} */}
                               </p>
                             </div>
                           </div>
@@ -390,6 +402,8 @@ export default function InventoryPage() {
                         </td>
 
                         <td className="border-l border-[#d2e5ff] px-4 py-4 text-center">
+                          <ComingSoonChannelCell />
+                          {/* Restore live eBay quantity editing when eBay goes live again.
                           {item.ebayProductId && item.ebayQuantity !== undefined ? (
                             <>
                               {canEdit ? (
@@ -414,6 +428,7 @@ export default function InventoryPage() {
                           ) : (
                             <EmptyChannelCell />
                           )}
+                          */}
                         </td>
 
                         <td className="border-l border-[#f5d4e6] px-4 py-4 text-center">
@@ -421,7 +436,7 @@ export default function InventoryPage() {
                         </td>
 
                         <td className="border-l border-[#ffe4d6] px-4 py-4 text-center">
-                          <EmptyChannelCell />
+                          <ComingSoonChannelCell />
                         </td>
 
                         <td className="px-4 py-4 text-center">
@@ -479,7 +494,7 @@ export default function InventoryPage() {
 
           {!showInitialLoading && filteredItems.length === 0 ? (
             <div className="border-t border-[#edf1f7] px-4 py-6 text-center text-sm text-[#6f7f9f]">
-              {items.length === 0 ? "No live Shopify or eBay inventory rows found." : `No inventory rows found for "${searchQuery}".`}
+              {items.length === 0 ? "No live Shopify inventory rows found. eBay and Etsy are coming soon." : `No inventory rows found for "${searchQuery}".`}
             </div>
           ) : null}
         </article>

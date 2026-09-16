@@ -4,7 +4,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { ApiClientError, AUTH_REQUIRED_MESSAGE, isAuthRequiredError } from "@/lib/auth";
-import { ebayApi, type EbayInventoryLevel } from "@/lib/ebay";
+// Restore ebayApi when eBay inventory is enabled again:
+// import { ebayApi, type EbayInventoryLevel } from "@/lib/ebay";
+import { type EbayInventoryLevel } from "@/lib/ebay";
 import { productsApi, type InventoryRecord, type ProductListItem, type ShopifyInventoryLevel } from "@/lib/products";
 
 export type InventoryRow = {
@@ -65,6 +67,7 @@ type InventoryPageState = {
 };
 
 const INVENTORY_PAGE_REFRESH_INTERVAL_MS = 60_000;
+const EBAY_COMING_SOON = true;
 
 function clampNonNegative(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -261,12 +264,14 @@ function mapInventoryRows(
 }
 
 async function fetchInventoryData() {
-  const [inventory, products, liveInventory, ebayInventory] = await Promise.all([
+  const [inventory, products, liveInventory] = await Promise.all([
     productsApi.getInventory(),
     productsApi.getProducts(),
     productsApi.getShopifyInventory(),
-    ebayApi.getInventory(),
   ]);
+  // Restore live eBay inventory merge when eBay goes live again:
+  // const ebayInventory = await ebayApi.getInventory();
+  const ebayInventory: EbayInventoryLevel[] = [];
 
   return mapInventoryRows(inventory, products, liveInventory, ebayInventory);
 }
@@ -457,13 +462,22 @@ export const useInventoryPageStore = create<InventoryPageState>()(
           return;
         }
 
+        if (EBAY_COMING_SOON) {
+          get().updateRowFeedback(row.id, {
+            tone: "idle",
+            message: "eBay inventory is coming soon.",
+          });
+          return;
+        }
+
         get().updateRowFeedback(row.id, {
           tone: "saving",
           message: "Updating eBay inventory...",
         });
 
         try {
-          await ebayApi.updateInventory(row.ebayProductId, row.ebayQuantity);
+          // Restore the live update call when eBay goes live again:
+          // await ebayApi.updateInventory(row.ebayProductId, row.ebayQuantity);
           await get().loadInventory({ forceRefresh: true });
           get().updateRowFeedback(row.id, {
             tone: "success",

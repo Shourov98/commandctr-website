@@ -57,46 +57,59 @@ function MarketPlaceholder() {
   );
 }
 
-function toEbayStatusTone(status?: string) {
-  const normalized = String(status ?? "").toLowerCase();
-  if (normalized === "active") {
-    return {
-      dotClassName: "bg-[#2bc7c4]",
-      textClassName: "text-[#1b6d80]",
-      label: "Active",
-    };
-  }
-
-  if (normalized === "failed") {
-    return {
-      dotClassName: "bg-[#ea2e3f]",
-      textClassName: "text-[#b24646]",
-      label: "Failed",
-    };
-  }
-
-  if (normalized === "ended") {
-    return {
-      dotClassName: "bg-[#94a3b8]",
-      textClassName: "text-[#64748b]",
-      label: "Ended",
-    };
-  }
-
-  if (normalized === "draft") {
-    return {
-      dotClassName: "bg-[#e3b101]",
-      textClassName: "text-[#8a6c00]",
-      label: "Draft",
-    };
-  }
-
-  return {
-    dotClassName: "bg-[#d4dceb]",
-    textClassName: "text-[#9aa5bc]",
-    label: "Empty",
-  };
+function ComingSoonMarketPlaceholder() {
+  return (
+    <>
+      <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#7f8da8]">--</div>
+      <div className="mt-1 flex items-center justify-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-[#35bfc8]" />
+        <span className="text-xs font-semibold text-[#35bfc8]">Coming Soon</span>
+      </div>
+    </>
+  );
 }
+
+// Restore live eBay status tones when eBay goes live again.
+// function toEbayStatusTone(status?: string) {
+//   const normalized = String(status ?? "").toLowerCase();
+//   if (normalized === "active") {
+//     return {
+//       dotClassName: "bg-[#2bc7c4]",
+//       textClassName: "text-[#1b6d80]",
+//       label: "Active",
+//     };
+//   }
+//
+//   if (normalized === "failed") {
+//     return {
+//       dotClassName: "bg-[#ea2e3f]",
+//       textClassName: "text-[#b24646]",
+//       label: "Failed",
+//     };
+//   }
+//
+//   if (normalized === "ended") {
+//     return {
+//       dotClassName: "bg-[#94a3b8]",
+//       textClassName: "text-[#64748b]",
+//       label: "Ended",
+//     };
+//   }
+//
+//   if (normalized === "draft") {
+//     return {
+//       dotClassName: "bg-[#e3b101]",
+//       textClassName: "text-[#8a6c00]",
+//       label: "Draft",
+//     };
+//   }
+//
+//   return {
+//     dotClassName: "bg-[#d4dceb]",
+//     textClassName: "text-[#9aa5bc]",
+//     label: "Empty",
+//   };
+// }
 
 export default function ProductsPage() {
   const products = useProductsPageStore((state) => state.products);
@@ -150,7 +163,9 @@ export default function ProductsPage() {
   const metrics = useMemo(() => {
     const lowStockCount = products.filter((product) => product.source === "shopify" && product.stock <= 10).length;
     const activeListings = products.filter((product) => product.source === "shopify" && product.status.toUpperCase() === "ACTIVE").length;
-    const activeEbayListings = products.filter((product) => (product.ebayStatus ?? "").toLowerCase() === "active").length;
+    // Restore this metric when eBay listings go live again:
+    // const activeEbayListings = products.filter((product) => (product.ebayStatus ?? "").toLowerCase() === "active").length;
+    const activeEbayListings = 0;
     const syncErrors = Object.values(rowFeedbackById).filter((feedback) => feedback.tone === "error").length;
 
     return {
@@ -179,7 +194,7 @@ export default function ProductsPage() {
             </div>
             <p className="text-sm font-semibold uppercase tracking-wide text-[#f2f6ff]">Active Shopify Listings</p>
             <p className="mt-1 text-3xl font-semibold leading-none">{metrics.activeListings}</p>
-            <p className="mt-2 text-xs text-[#b7c6e4]">eBay active: {metrics.activeEbayListings}</p>
+            <p className="mt-2 text-xs text-[#b7c6e4]">eBay: Coming Soon</p>
           </article>
           <article className="rounded-2xl bg-[#1a2548] p-4 text-white shadow-[0_18px_40px_-28px_rgba(17,33,64,0.9)]">
             <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#fff7cb]">
@@ -287,7 +302,7 @@ export default function ProductsPage() {
                   </th>
                   <th className="w-[170px] bg-[#0b72de] px-4 py-4">
                     <p className="text-sm normal-case leading-none text-white">eb eBay</p>
-                    <p className="mt-1 text-[11px] normal-case text-white">BIN Price</p>
+                    <p className="mt-1 text-[11px] normal-case text-white">Coming Soon</p>
                   </th>
                   <th className="w-[170px] bg-gradient-to-r from-[#00d4d1] via-[#0ea4d6] to-[#eb0f67] px-4 py-4">
                     <p className="text-sm normal-case leading-none text-white">♪ TikTok</p>
@@ -295,7 +310,7 @@ export default function ProductsPage() {
                   </th>
                   <th className="w-[170px] bg-[#F1641E] px-4 py-4">
                     <p className="text-sm normal-case leading-none text-white">Etsy</p>
-                    <p className="mt-1 text-[11px] normal-case text-white">Listing Price</p>
+                    <p className="mt-1 text-[11px] normal-case text-white">Coming Soon</p>
                   </th>
                   <th className="w-[170px] bg-[#233a69] px-4 py-4 text-center">Actions</th>
                 </tr>
@@ -402,6 +417,8 @@ export default function ProductsPage() {
                           <MarketPlaceholder />
                         </td>
                         <td className="border-l border-[#d2e5ff] px-4 py-4 text-center">
+                          <ComingSoonMarketPlaceholder />
+                          {/* Restore live eBay status display when eBay goes live again.
                           {product.ebayListingId || product.ebayStatus ? (
                             <>
                               <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
@@ -417,12 +434,13 @@ export default function ProductsPage() {
                           ) : (
                             <MarketPlaceholder />
                           )}
+                          */}
                         </td>
                         <td className="border-l border-[#f5d4e6] px-4 py-4 text-center">
                           <MarketPlaceholder />
                         </td>
                         <td className="border-l border-[#ffe4d6] px-4 py-4 text-center">
-                          <MarketPlaceholder />
+                          <ComingSoonMarketPlaceholder />
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-col items-center gap-2">
@@ -457,9 +475,7 @@ export default function ProductsPage() {
                                     ? "Blur field to sync Shopify."
                                     : "View details. Inline edit is available here."
                                   : product.source === "commandctr"
-                                    ? product.ebayListingId
-                                      ? "eBay Sandbox listing is attached to this product."
-                                      : "View or edit backend product record."
+                                    ? "View or edit backend product record. eBay and Etsy are coming soon."
                                     : "View or edit Product AI record"
                               )}
                             </p>
@@ -482,7 +498,7 @@ export default function ProductsPage() {
 
         <div className="flex items-center justify-between rounded-xl border border-[#e1e6f0] bg-white px-4 py-3 text-xs text-[#7b89a6]">
           <p>Showing {filteredProducts.length} rows. Product AI draft page {pagination.page}{pagination.total_pages ? ` of ${pagination.total_pages}` : ""} remains included in this combined view.</p>
-          <div className="text-right text-[#8c99b2]">eBay rows now show real sandbox status when a backend product has been published.</div>
+          <div className="text-right text-[#8c99b2]">eBay and Etsy channels are marked Coming Soon.</div>
         </div>
         <div className="flex items-center justify-end gap-2">
           <button

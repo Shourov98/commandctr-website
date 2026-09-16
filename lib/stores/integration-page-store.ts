@@ -98,6 +98,8 @@ type IntegrationPageState = {
 };
 
 const INTEGRATION_PAGE_REFRESH_INTERVAL_MS = 60_000;
+const EBAY_COMING_SOON = true;
+const ETSY_COMING_SOON = true;
 
 export const useIntegrationPageStore = create<IntegrationPageState>()((set, get) => ({
   banner: null,
@@ -156,6 +158,17 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
     }
   },
   async loadEbayStatus() {
+    if (EBAY_COMING_SOON) {
+      // Restore the live status call when eBay goes live again.
+      // const status = await integrationApi.getEbayStatus();
+      set({
+        ebayState: initialEbayState,
+        hasLoadedOnce: true,
+        lastLoadedAt: Date.now(),
+      });
+      return;
+    }
+
     try {
       const status = await integrationApi.getEbayStatus();
       set({
@@ -181,6 +194,17 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
     }
   },
   async loadEtsyStatus() {
+    if (ETSY_COMING_SOON) {
+      // Restore the live status call when Etsy goes live again.
+      // const status = await integrationApi.getEtsyStatus();
+      set({
+        etsyState: initialEtsyState,
+        hasLoadedOnce: true,
+        lastLoadedAt: Date.now(),
+      });
+      return;
+    }
+
     try {
       const status = await integrationApi.getEtsyStatus();
       set({
@@ -228,6 +252,19 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
     }
   },
   async disconnectEbay() {
+    if (EBAY_COMING_SOON) {
+      // Restore live disconnect when eBay goes live again.
+      // await integrationApi.disconnectEbay();
+      set({
+        banner: {
+          type: "info",
+          message: "eBay is coming soon.",
+        },
+        isDisconnectingEbay: false,
+      });
+      return;
+    }
+
     set({ banner: null, isDisconnectingEbay: true });
     try {
       await integrationApi.disconnectEbay();
@@ -250,6 +287,19 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
     }
   },
   async disconnectEtsy() {
+    if (ETSY_COMING_SOON) {
+      // Restore live disconnect when Etsy goes live again.
+      // await integrationApi.disconnectEtsy();
+      set({
+        banner: {
+          type: "info",
+          message: "Etsy is coming soon.",
+        },
+        isDisconnectingEtsy: false,
+      });
+      return;
+    }
+
     set({ banner: null, isDisconnectingEtsy: true });
     try {
       await integrationApi.disconnectEtsy();

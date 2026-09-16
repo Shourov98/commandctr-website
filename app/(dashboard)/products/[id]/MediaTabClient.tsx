@@ -281,19 +281,28 @@ export default function MediaTabClient() {
             <div className="space-y-1">
               {[
                 ["amazon", "Amazon White Background"],
-                ["ebay", "eBay Optimized"],
+                ["ebay", "eBay Coming Soon"],
                 ["tiktok", "Tiktok Optimized"],
-                ["etsy", "Etsy Optimized"],
+                ["etsy", "Etsy Coming Soon"],
               ].map(([key, label]) => {
                 const typedKey = key as keyof typeof channels;
-                const enabled = channels[typedKey];
+                const isComingSoon = typedKey === "ebay" || typedKey === "etsy";
+                // Restore live eBay/Etsy media toggles when those channels go live:
+                // const enabled = channels[typedKey];
+                const enabled = isComingSoon ? false : channels[typedKey];
 
                 return (
                   <button
-                    className="flex w-full items-center justify-end gap-2 text-[10px] font-semibold text-[#5f7395]"
+                    className={`flex w-full items-center justify-end gap-2 text-[10px] font-semibold ${isComingSoon ? "cursor-not-allowed text-[#93a3bd]" : "text-[#5f7395]"}`}
                     key={key}
-                    onClick={() => setChannels((prev) => ({ ...prev, [typedKey]: !prev[typedKey] }))}
+                    onClick={() => {
+                      if (isComingSoon) {
+                        return;
+                      }
+                      setChannels((prev) => ({ ...prev, [typedKey]: !prev[typedKey] }));
+                    }}
                     type="button"
+                    title={isComingSoon ? `${label.replace(" Coming Soon", "")} is coming soon` : undefined}
                   >
                     <span>{label}</span>
                     <span className={`relative h-4 w-8 rounded-full ${enabled ? "bg-[#47cfca]" : "bg-[#bcc5d3]"}`}>

@@ -165,7 +165,7 @@ export default function WalletPlatformDetailsPage() {
               </p>
             </div>
             <div className="mt-5 rounded-xl bg-[#152242] px-4 py-3 text-sm text-[#c6d4ed]">
-              Amazon, eBay, and TikTok wallet details are coming later.
+              Amazon, eBay, Etsy, and TikTok wallet details are coming later.
             </div>
           </article>
         </div>
