@@ -513,8 +513,8 @@ export default function IntegrationPage() {
             </p>
           </div>
 
-          {banner ? (
-            <div className="mx-auto mt-12 max-w-3xl px-4">
+          <div className="mx-auto mt-12 max-w-3xl px-4">
+            {banner ? (
               <div className={`premium-alert-banner w-full ${banner.type}`} style={{ marginTop: 0 }}>
                 <div className="flex-1 font-semibold">{banner.message}</div>
                 <button
@@ -525,17 +525,15 @@ export default function IntegrationPage() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-            </div>
-          ) : null}
-
-          <div className="mx-auto mt-12 max-w-3xl px-4">
-            <div className="stepper-progress-bar">
-              <div className="stepper-line" />
-              <div className="stepper-line-active" style={{ width: "100%" }} />
-              <Step completed icon={<ShoppingBag className="h-4 w-4" />} label="Identity" />
-              <Step completed icon={<University className="h-4 w-4" />} label="Banking" />
-              <Step active icon={<Store className="h-4 w-4" />} label="Marketplace" />
-            </div>
+            ) : (
+              <div className="stepper-progress-bar" style={{ marginTop: 0, marginBottom: 0 }}>
+                <div className="stepper-line" />
+                <div className="stepper-line-active" style={{ width: "100%" }} />
+                <Step completed icon={<ShoppingBag className="h-4 w-4" />} label="Identity" />
+                <Step completed icon={<University className="h-4 w-4" />} label="Banking" />
+                <Step active icon={<Store className="h-4 w-4" />} label="Marketplace" />
+              </div>
+            )}
           </div>
 
           <div className="mt-12 w-full">

@@ -31,7 +31,18 @@ function toCurrencyValue(value: string) {
   return `£ ${numeric.toFixed(2)}`;
 }
 
+function toStockDisplay(value: number) {
+  return Number.isFinite(value) ? String(value) : "--";
+}
+
 function toStockTone(value: number) {
+  if (!Number.isFinite(value)) {
+    return {
+      label: "Unknown",
+      className: "text-[#9aa5bc]",
+    };
+  }
+
   if (value <= 10) {
     return {
       label: "Low Stock",
@@ -120,12 +131,10 @@ export default function ProductsPage() {
   const isImporting = useProductsPageStore((state) => state.isImporting);
   const pageMessage = useProductsPageStore((state) => state.pageMessage);
   const rowFeedbackById = useProductsPageStore((state) => state.rowFeedbackById);
-  const hasLoadedOnce = useProductsPageStore((state) => state.hasLoadedOnce);
   const hasHydrated = useProductsPageStore((state) => state.hasHydrated);
   const setSearchQuery = useProductsPageStore((state) => state.setSearchQuery);
   const toggleGlobalEditMode = useProductsPageStore((state) => state.toggleGlobalEditMode);
   const loadPage = useProductsPageStore((state) => state.loadPage);
-  const shouldRefresh = useProductsPageStore((state) => state.shouldRefresh);
   const importShopify = useProductsPageStore((state) => state.importShopify);
   const changePage = useProductsPageStore((state) => state.changePage);
   const updateShopifyPriceDraft = useProductsPageStore((state) => state.updateShopifyPriceDraft);
@@ -368,11 +377,11 @@ export default function ProductsPage() {
                                 onBlur={() => void saveStock(product)}
                                 onChange={(event) => updateStockDraft(product.id, event.target.value)}
                                 type="number"
-                                value={product.stock}
+                                value={Number.isFinite(product.stock) ? product.stock : ""}
                               />
                           ) : (
                             <div className="mx-auto flex h-8 w-[84px] items-center justify-center rounded-lg px-2 text-center text-sm text-[#3f4d65]">
-                              {product.source === "shopify" ? product.stock : "--"}
+                              {product.source === "shopify" ? toStockDisplay(product.stock) : "--"}
                             </div>
                           )}
                           <p className={`mt-1 text-center text-xs ${product.source === "shopify" ? stockTone.className : "text-[#9aa5bc]"}`}>
