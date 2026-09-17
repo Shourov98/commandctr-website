@@ -37,6 +37,11 @@ export type RowFeedback = {
   message: string;
 };
 
+function toSafeStock(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
+}
+
 export type ProductAiListItem = {
   id: string;
   status: string;
@@ -133,7 +138,7 @@ function buildInventoryQuantityByProductId(levels: ShopifyInventoryLevel[]) {
       continue;
     }
 
-    totals.set(level.productId, (totals.get(level.productId) ?? 0) + Math.max(level.quantity, 0));
+    totals.set(level.productId, (totals.get(level.productId) ?? 0) + toSafeStock(level.quantity));
   }
 
   return totals;
@@ -163,7 +168,7 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       vendor: product.vendor ?? "",
       productType: product.productType ?? "",
       status: product.status ?? "DRAFT",
-      stock: liveStock,
+      stock: toSafeStock(liveStock),
       featuredImage: product.featuredImage,
       shopifyPrice: primaryVariant?.price ?? "",
       shopifyVariantId: primaryVariant?.shopifyVariantId,
