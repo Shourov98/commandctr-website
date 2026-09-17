@@ -91,12 +91,29 @@ const setSessionCookies = (target: CookieTarget, tokens: { accessToken: string; 
 const getCookieStore = async (cookieStore?: CookieStore) => cookieStore ?? (await cookies());
 
 export const createBackendResponse = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(buildBackendUrl(path), {
-    ...init,
-    headers: buildBackendHeaders(init?.headers),
-  });
-  const payload = await parsePayload<T>(response);
-  return { response, payload };
+  try {
+    const response = await fetch(buildBackendUrl(path), {
+      ...init,
+      headers: buildBackendHeaders(init?.headers),
+    });
+    const payload = await parsePayload<T>(response);
+    return { response, payload };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Backend request failed.";
+    const payload: ApiErrorResponse = {
+      success: false,
+      message: "Backend API is unavailable. Start commandctr-backend-py and confirm NEXT_PUBLIC_API_BASE_URL points to it.",
+      errors: { detail: message, url: buildBackendUrl(path) },
+    };
+
+    return {
+      response: new Response(JSON.stringify(payload), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }),
+      payload,
+    };
+  }
 };
 
 export const getAuthTokensFromCookies = async (cookieStore?: CookieStore): Promise<AuthTokens> => {
