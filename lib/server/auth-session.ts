@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import type { AuthUser } from "@/lib/auth";
+import { applyBackendCompatibilityHeaders, buildBackendUrl } from "@/lib/server/backend-config";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000/api/v1";
 const ACCESS_COOKIE = "commandctr_access_token";
 const REFRESH_COOKIE = "commandctr_refresh_token";
 const ACCESS_MAX_AGE_SECONDS = 15 * 60;
@@ -47,21 +47,9 @@ export type AuthTokens = {
 
 const isProduction = process.env.NODE_ENV === "production";
 
-const buildBackendUrl = (path: string) => `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
-
 const buildBackendHeaders = (headers?: HeadersInit) => {
   const nextHeaders = new Headers(headers);
-
-  try {
-    const apiUrl = new URL(API_BASE_URL);
-    if (apiUrl.hostname.includes("ngrok")) {
-      nextHeaders.set("ngrok-skip-browser-warning", "true");
-    }
-  } catch {
-    // Ignore invalid env parsing and fall back to provided headers.
-  }
-
-  return nextHeaders;
+  return applyBackendCompatibilityHeaders(nextHeaders);
 };
 
 const cookieOptions = (maxAge: number) => ({

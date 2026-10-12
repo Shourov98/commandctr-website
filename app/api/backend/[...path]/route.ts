@@ -6,6 +6,7 @@ import {
   refreshAccessToken,
   setCookiesOnResponse,
 } from "@/lib/server/auth-session";
+import { applyBackendCompatibilityHeaders, getBackendApiBaseUrl } from "@/lib/server/backend-config";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -50,7 +51,21 @@ async function proxyRequest(request: Request, params: Promise<{ path: string[] }
   if (!body) {
     headers.delete("content-type");
   }
-  const targetUrl = `${(process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000/api/v1")}${pathname}${search}`;
+  let backendBaseUrl: string;
+  try {
+    backendBaseUrl = getBackendApiBaseUrl();
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Backend API base URL is not configured.",
+        errors: { detail: error instanceof Error ? error.message : "Unknown backend configuration error." },
+      },
+      { status: 500 },
+    );
+  }
+
+  const targetUrl = `${backendBaseUrl}${pathname}${search}`;
   console.info("[api/backend proxy] incoming request", {
     method: request.method,
     pathname,
@@ -60,14 +75,7 @@ async function proxyRequest(request: Request, params: Promise<{ path: string[] }
     hasRefreshToken: Boolean(tokens.refreshToken),
     bodyBytes: rawBody?.length ?? 0,
   });
-  try {
-    const apiUrl = new URL(process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000/api/v1");
-    if (apiUrl.hostname.includes("ngrok")) {
-      headers.set("ngrok-skip-browser-warning", "true");
-    }
-  } catch {
-    // Ignore invalid env parsing and fall back to current headers.
-  }
+  applyBackendCompatibilityHeaders(headers);
   let accessToken = tokens.accessToken;
 
   const sendUpstream = (token: string | null) => {
