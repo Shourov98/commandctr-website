@@ -8,6 +8,7 @@ const ACCESS_COOKIE = "commandctr_access_token";
 const REFRESH_COOKIE = "commandctr_refresh_token";
 const ACCESS_MAX_AGE_SECONDS = 15 * 60;
 const REFRESH_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const refreshRequests = new Map<string, Promise<string | null>>();
 
 type ApiSuccessResponse<T> = {
   success: true;
@@ -117,20 +118,35 @@ export const refreshAccessToken = async (refreshToken: string | null) => {
     return null;
   }
 
-  const refreshed = await createBackendResponse<RefreshResponse>("/auth/refresh-token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ refreshToken }),
-    cache: "no-store",
-  });
-
-  if (!refreshed.response.ok || !refreshed.payload?.success) {
-    return null;
+  const existing = refreshRequests.get(refreshToken);
+  if (existing) {
+    return existing;
   }
 
-  return refreshed.payload.data.accessToken;
+  const request = (async () => {
+    const refreshed = await createBackendResponse<RefreshResponse>("/auth/refresh-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refreshToken }),
+      cache: "no-store",
+    });
+
+    if (!refreshed.response.ok || !refreshed.payload?.success) {
+      return null;
+    }
+
+    return refreshed.payload.data.accessToken;
+  })();
+
+  refreshRequests.set(refreshToken, request);
+
+  try {
+    return await request;
+  } finally {
+    refreshRequests.delete(refreshToken);
+  }
 };
 
 export const getSessionFromCookies = async (cookieStore?: CookieStore): Promise<SessionResult> => {

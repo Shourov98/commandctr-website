@@ -2580,6 +2580,7 @@ export default function AddProductEditor({
   const productImageUploadInputRef = useRef<HTMLInputElement>(null);
   const lastSavedDraftRef = useRef<string | null>(null);
   const hydratedEbayBackendProductIdRef = useRef<string | null>(null);
+  const pricingAutoAttemptKeyRef = useRef<string | null>(null);
   const [draft, setDraft] = useState<ApiProduct>(emptyProduct);
   const [variantsByMarket, setVariantsByMarket] = useState<Record<MarketKey, ApiVariant[]>>(sampleVariants);
   const [productId, setProductId] = useState<string | null>(initialSourceHint === "product_ai" ? initialProductId : null);
@@ -3083,6 +3084,12 @@ export default function AddProductEditor({
       return;
     }
 
+    const attemptKey = `${productId}|${activeMarket}`;
+    if (pricingAutoAttemptKeyRef.current === attemptKey) {
+      return;
+    }
+
+    pricingAutoAttemptKeyRef.current = attemptKey;
     void analyzeDynamicPricing();
   }, [productId, isLoadingProduct, isRefreshingPricing, pricingSnapshot, publishPrice, activeMarket]);
 

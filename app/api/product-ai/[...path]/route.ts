@@ -2,7 +2,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSessionFromCookies, setCookiesOnResponse } from "@/lib/server/auth-session";
+import { clearCookiesOnResponse, getSessionFromCookies, setCookiesOnResponse } from "@/lib/server/auth-session";
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000/api";
 const DEFAULT_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -21,7 +21,9 @@ function getProxyTimeoutMs() {
 async function forwardRequest(request: NextRequest, pathSegments: string[]) {
   const session = await getSessionFromCookies();
   if (!session.user || !session.accessToken) {
-    return NextResponse.json({ detail: "Authorization token is required." }, { status: 401 });
+    const response = NextResponse.json({ detail: "Authorization token is required." }, { status: 401 });
+    clearCookiesOnResponse(response);
+    return response;
   }
 
   const backendBaseUrl = getBackendBaseUrl();
