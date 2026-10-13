@@ -2897,6 +2897,19 @@ export default function AddProductEditor({
     setIsRefreshingPricing(false);
   }
 
+  function detachMissingProductAiRecord(missingProductId: string) {
+    if (productId === missingProductId) {
+      setProductId(null);
+    }
+    pricingAutoAttemptKeyRef.current = null;
+
+    if (!isImportMode) {
+      const params = new URLSearchParams();
+      params.set("market", activeMarket);
+      router.replace(`/products/add?${params.toString()}`, { scroll: false });
+    }
+  }
+
   function updatePublishPrice(value: string, source: "manual" | "auto" = "manual") {
     if (source === "manual" && value.trim() !== lastAutoPublishPriceRef.current) {
       lastAutoPublishPriceRef.current = "";
@@ -3573,6 +3586,11 @@ export default function AddProductEditor({
             setShopifyProductId(null);
             applyRecord(record, `Loaded draft ${record.id.slice(0, 8)} for editing.`);
             return;
+          }
+
+          if (response.status === 404 && active) {
+            detachMissingProductAiRecord(requestedProductId);
+            setStatusMessage("That Product AI draft is no longer available. Loaded your saved product data where possible.");
           }
         }
 
@@ -5369,6 +5387,18 @@ export default function AddProductEditor({
 
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as { detail?: string } | null;
+        if (response.status === 404) {
+          detachMissingProductAiRecord(requestedProductId);
+          const querySnapshot = await fetchQueryBasedPricing(activeMarket);
+          if (querySnapshot) {
+            setPricingSnapshot(querySnapshot);
+            const queryPricing = querySnapshot.markets.find((entry) => entry.marketplace === activeMarket) ?? querySnapshot.markets[0];
+            if (queryPricing && syncPublishPriceFromPricing(queryPricing)) {
+              setStatusMessage(queryPricing.analysis_summary || "Marketplace pricing refreshed from the current product details.");
+              return;
+            }
+          }
+        }
         throw new Error(errorBody?.detail ?? "Could not load marketplace pricing.");
       }
 
@@ -5987,6 +6017,16 @@ export default function AddProductEditor({
 
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as { detail?: string } | null;
+        if (response.status === 404) {
+          const missingProductId = productId;
+          detachMissingProductAiRecord(missingProductId);
+          if (selectedImage && sourceTitle.trim()) {
+            return await generateMarketplaceDraft(
+              market,
+              `${marketLabels[market]} content and image regenerated from the current product details.`,
+            );
+          }
+        }
         throw new Error(errorBody?.detail ?? `Could not generate the ${marketLabels[market]} content and image.`);
       }
 
