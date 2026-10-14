@@ -280,7 +280,7 @@ export default function IntegrationPage() {
         id: "ebay",
         title: "eBay",
         subtitle: "Global Retail",
-        description: "eBay marketplace workflows are planned for a future CommandCtr release.",
+        description: "eBay marketplace workflows are planned for a future Twinstr release.",
         icon: <EbayIcon className="h-5 w-12" />,
         themeBg: "bg-[#0064d2]",
         // Restore live connected badge when eBay goes live:
@@ -292,7 +292,7 @@ export default function IntegrationPage() {
         id: "etsy",
         title: "Etsy",
         subtitle: "Handmade & Vintage",
-        description: "Etsy shop sync and listing management are planned for a future CommandCtr release.",
+        description: "Etsy shop sync and listing management are planned for a future Twinstr release.",
         icon: <EtsyIcon className="h-7 w-7" />,
         themeBg: "bg-[#F1641E]",
         // Restore live connected badge when Etsy goes live:

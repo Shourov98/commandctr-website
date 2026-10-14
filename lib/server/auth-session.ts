@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { applyBackendCompatibilityHeaders, buildBackendUrl } from "@/lib/server/backend-config";
 
-const ACCESS_COOKIE = "commandctr_access_token";
-const REFRESH_COOKIE = "commandctr_refresh_token";
+const ACCESS_COOKIE = "twinstr_access_token";
+const REFRESH_COOKIE = "twinstr_refresh_token";
+const LEGACY_ACCESS_COOKIE = "commandctr_access_token";
+const LEGACY_REFRESH_COOKIE = "commandctr_refresh_token";
 const ACCESS_MAX_AGE_SECONDS = 15 * 60;
 const REFRESH_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const refreshRequests = new Map<string, Promise<string | null>>();
@@ -68,6 +70,8 @@ const parsePayload = async <T>(response: Response) => {
 const clearSessionCookies = (target: CookieTarget) => {
   target.cookies.set(ACCESS_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
   target.cookies.set(REFRESH_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+  target.cookies.set(LEGACY_ACCESS_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+  target.cookies.set(LEGACY_REFRESH_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
 };
 
 const setSessionCookies = (target: CookieTarget, tokens: { accessToken: string; refreshToken?: string }) => {
@@ -91,7 +95,7 @@ export const createBackendResponse = async <T>(path: string, init?: RequestInit)
     const message = error instanceof Error ? error.message : "Backend request failed.";
     const payload: ApiErrorResponse = {
       success: false,
-      message: "Backend API is unavailable. Start commandctr-backend-py and confirm NEXT_PUBLIC_API_BASE_URL points to it.",
+      message: "Backend API is unavailable. Start twinstr-backend-py and confirm NEXT_PUBLIC_API_BASE_URL points to it.",
       errors: { detail: message, url: buildBackendUrl(path) },
     };
 
@@ -108,8 +112,8 @@ export const createBackendResponse = async <T>(path: string, init?: RequestInit)
 export const getAuthTokensFromCookies = async (cookieStore?: CookieStore): Promise<AuthTokens> => {
   const store = await getCookieStore(cookieStore);
   return {
-    accessToken: store.get(ACCESS_COOKIE)?.value ?? null,
-    refreshToken: store.get(REFRESH_COOKIE)?.value ?? null,
+    accessToken: store.get(ACCESS_COOKIE)?.value ?? store.get(LEGACY_ACCESS_COOKIE)?.value ?? null,
+    refreshToken: store.get(REFRESH_COOKIE)?.value ?? store.get(LEGACY_REFRESH_COOKIE)?.value ?? null,
   };
 };
 

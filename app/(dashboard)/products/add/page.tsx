@@ -22,7 +22,7 @@ export default async function AddProductPage({ searchParams }: AddProductPagePro
   const activeMarket: MarketKey = marketOrder.includes(market as MarketKey) ? (market as MarketKey) : "shopify";
   const initialProductId = resolvedSearchParams.productId ?? resolvedSearchParams.id ?? null;
   const initialSourceHint =
-    resolvedSearchParams.source === "shopify" || resolvedSearchParams.source === "product_ai" || resolvedSearchParams.source === "commandctr"
+    resolvedSearchParams.source === "shopify" || resolvedSearchParams.source === "product_ai" || resolvedSearchParams.source === "twinstr" || resolvedSearchParams.source === "commandctr"
       ? resolvedSearchParams.source
       : null;
   const localDraftSeed =

@@ -377,7 +377,7 @@ export const useImportPageStore = create<ImportPageState>()(
   },
     }),
     {
-      name: "commandctr-import-page",
+      name: "twinstr-import-page",
       partialize: (state) => ({
         rows: state.rows,
         pagination: state.pagination,

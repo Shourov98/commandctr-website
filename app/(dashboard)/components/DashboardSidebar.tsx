@@ -39,8 +39,8 @@ export default function DashboardSidebar() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const initials = `${user?.firstName?.[0] ?? "C"}${user?.lastName?.[0] ?? ""}`.toUpperCase();
-  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "CommandCtr User";
+  const initials = `${user?.firstName?.[0] ?? "T"}${user?.lastName?.[0] ?? ""}`.toUpperCase();
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Twinstr User";
 
   const handleNavClick = (
     _event: React.MouseEvent<HTMLAnchorElement>,
@@ -213,7 +213,7 @@ export default function DashboardSidebar() {
             </div>
             <h3 className="text-lg font-bold text-white mb-2">Confirm Log Out</h3>
             <p className="text-sm text-[#8ea0c6] mb-6">
-              Are you sure you want to log out of CommandCtr? Any unsaved changes may be lost.
+              Are you sure you want to log out of Twinstr? Any unsaved changes may be lost.
             </p>
             <div className="flex gap-3 justify-center">
               <button

@@ -63,7 +63,7 @@ export default function ProfileSettingsPage() {
 
     setTimeout(() => {
       // Persist in localStorage to dynamically update headers/sidebars
-      const raw = localStorage.getItem("commandctr-merchant-auth");
+      const raw = localStorage.getItem("twinstr-merchant-auth") || localStorage.getItem("commandctr-merchant-auth");
       if (raw) {
         try {
           const session = JSON.parse(raw);
@@ -73,7 +73,7 @@ export default function ProfileSettingsPage() {
             lastName,
             email,
           };
-          localStorage.setItem("commandctr-merchant-auth", JSON.stringify(session));
+          localStorage.setItem("twinstr-merchant-auth", JSON.stringify(session));
         } catch (err) {
           console.error("Failed to update local session", err);
         }

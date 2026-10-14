@@ -37,7 +37,7 @@ export default function Navbar() {
         className="leading-none font-bold tracking-[-0.02em] text-[#2dc2bd] text-[24px] max-[1180px]:text-[17px]"
         href="/"
       >
-        CommandCtr
+        Twinstr
       </Link>
 
       <nav

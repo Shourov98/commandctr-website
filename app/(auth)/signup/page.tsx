@@ -72,7 +72,7 @@ export default function SignupPage() {
     <AuthRedirect>
       <AuthShell>
       <Link href="/" className="text-3xl font-bold text-[#33cac7] sm:text-4xl">
-        CommandCtr
+        Twinstr
       </Link>
 
       <h1 className="mt-10 text-4xl font-medium tracking-[-0.02em] text-[#303a4f] sm:text-5xl">

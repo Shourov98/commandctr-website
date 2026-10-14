@@ -317,7 +317,7 @@ type ApiDynamicPricingQueryResponse = {
 };
 
 type MarketActionState = Record<MarketKey, boolean>;
-type PublishTarget = "commandctr" | MarketKey;
+type PublishTarget = "twinstr" | "commandctr" | MarketKey;
 type PublishActionState = Record<PublishTarget, boolean>;
 type PublishStatus = "DRAFT" | "ACTIVE";
 type ImageCardKey = "source" | "transparent_cutout" | MarketKey;
@@ -477,6 +477,10 @@ const publishTabStyles: Record<
     inactive: string;
   }
 > = {
+  twinstr: {
+    active: "bg-[#f0f9ff] border-[#0284c7] text-[#0369a1] shadow-[0_3px_12px_-3px_rgba(2,132,199,0.25)] border",
+    inactive: "bg-[#f8fafc] border-[#e2e8f0] text-[#64748b] hover:bg-[#f0f9ff] hover:border-[#0284c7]/40 hover:text-slate-900 border",
+  },
   commandctr: {
     active: "bg-[#f0f9ff] border-[#0284c7] text-[#0369a1] shadow-[0_3px_12px_-3px_rgba(2,132,199,0.25)] border",
     inactive: "bg-[#f8fafc] border-[#e2e8f0] text-[#64748b] hover:bg-[#f0f9ff] hover:border-[#0284c7]/40 hover:text-slate-900 border",
@@ -810,6 +814,7 @@ const emptyActionState: MarketActionState = {
 };
 
 const emptyPublishState: PublishActionState = {
+  twinstr: false,
   commandctr: false,
   amazon: false,
   ebay: false,
@@ -819,7 +824,7 @@ const emptyPublishState: PublishActionState = {
 };
 
 const publishStatusOptions: PublishStatus[] = ["DRAFT", "ACTIVE"];
-const draftStorageKey = "commandctr-add-product-draft";
+const draftStorageKey = "twinstr-add-product-draft";
 const emptyPublishFieldErrors: PublishFieldErrors = {
   title: false,
   price: false,
@@ -1400,7 +1405,7 @@ function readImportPreviewFallback(recordId: string): ImportPreviewFallback | nu
   }
 
   try {
-    const raw = window.localStorage.getItem("commandctr-import-page");
+    const raw = window.localStorage.getItem("twinstr-import-page") || window.localStorage.getItem("commandctr-import-page");
     if (!raw) {
       return null;
     }
@@ -2571,7 +2576,7 @@ export default function AddProductEditor({
   activeMarket: MarketKey;
   initialProductId: string | null;
   initialImportRecordId?: string | null;
-  initialSourceHint: "shopify" | "product_ai" | "commandctr" | null;
+  initialSourceHint: "shopify" | "product_ai" | "twinstr" | "commandctr" | null;
   localDraftSeed: LocalDraftSeed | null;
   readOnly?: boolean;
 }) {
@@ -2585,7 +2590,7 @@ export default function AddProductEditor({
   const [variantsByMarket, setVariantsByMarket] = useState<Record<MarketKey, ApiVariant[]>>(sampleVariants);
   const [productId, setProductId] = useState<string | null>(initialSourceHint === "product_ai" ? initialProductId : null);
   const [backendProductId, setBackendProductId] = useState<string | null>(
-    initialSourceHint === "shopify" || initialSourceHint === "commandctr" ? initialProductId : null,
+    initialSourceHint === "shopify" || initialSourceHint === "twinstr" || initialSourceHint === "commandctr" ? initialProductId : null,
   );
   const [importRecordId, setImportRecordId] = useState<string | null>(initialImportRecordId);
   const [statusMessage, setStatusMessage] = useState("Choose an image and generate a product draft.");
@@ -3567,7 +3572,7 @@ export default function AddProductEditor({
 
       setIsLoadingProduct(true);
       try {
-        if (initialSourceHint !== "shopify" && initialSourceHint !== "commandctr") {
+        if (initialSourceHint !== "shopify" && initialSourceHint !== "twinstr" && initialSourceHint !== "commandctr") {
           const response = await fetch(`/api/product-ai/products/${requestedProductId}`, { cache: "no-store" });
           if (response.ok) {
             const record = (await response.json()) as ApiRecord;
@@ -4693,15 +4698,15 @@ export default function AddProductEditor({
   }
 
   async function saveLocalDBDraft() {
-    setPublishSubmitting((prev) => ({ ...prev, commandctr: true }));
-    setShopifyPublishMessage("Saving product draft to CommandCtr DB...");
+    setPublishSubmitting((prev) => ({ ...prev, commandctr: true, twinstr: true }));
+    setShopifyPublishMessage("Saving product draft to Twinstr DB...");
     try {
       await saveDraft();
-      setShopifyPublishMessage("Success: Product saved to CommandCtr DB.");
+      setShopifyPublishMessage("Success: Product saved to Twinstr DB.");
     } catch {
-      setShopifyPublishMessage("Failed to save product to CommandCtr DB.");
+      setShopifyPublishMessage("Failed to save product to Twinstr DB.");
     } finally {
-      setPublishSubmitting((prev) => ({ ...prev, commandctr: false }));
+      setPublishSubmitting((prev) => ({ ...prev, commandctr: false, twinstr: false }));
     }
   }
 
@@ -4738,6 +4743,7 @@ export default function AddProductEditor({
     setIsUploadingToAll(true);
     setPublishSubmitting({
       shopify: true,
+      twinstr: true,
       commandctr: true,
       amazon: true,
       // Restore eBay bulk upload state when eBay goes live again.
@@ -4804,9 +4810,9 @@ export default function AddProductEditor({
 
         (async () => {
           await saveDraft();
-          return "CommandCtr DB: Saved";
+          return "Twinstr DB: Saved";
         })().finally(() => {
-          setPublishSubmitting((prev) => ({ ...prev, commandctr: false }));
+          setPublishSubmitting((prev) => ({ ...prev, commandctr: false, twinstr: false }));
         }),
 
         // Restore eBay/Etsy in this target list when those channels go live again:
@@ -4852,6 +4858,7 @@ export default function AddProductEditor({
       setIsUploadingToAll(false);
       setPublishSubmitting({
         shopify: false,
+        twinstr: false,
         commandctr: false,
         amazon: false,
         ebay: false,
@@ -8343,7 +8350,7 @@ export default function AddProductEditor({
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-[#1f2c44]">Publish Targets</h2>
-                  <p className="text-sm text-[#7f92b1]">Upload the current product data to supported CommandCtr marketplace backends.</p>
+                  <p className="text-sm text-[#7f92b1]">Upload the current product data to supported Twinstr marketplace backends.</p>
                 </div>
                 <div className="rounded-full bg-[#eef5ff] px-3 py-2 text-xs font-semibold text-[#4d6284]">
                   Active market: {marketLabels[activeMarket]}
@@ -8777,7 +8784,7 @@ export default function AddProductEditor({
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#8093b2] mb-2">Publish Target Channel</p>
                   <div className="flex flex-wrap gap-2">
                     {[
-                      { key: "commandctr", label: "CommandCtr DB" },
+                      { key: "twinstr", label: "Twinstr DB" },
                       { key: "amazon", label: "Amazon" },
                       // Restore active eBay/Etsy publish target labels when those channels go live again.
                       // { key: "ebay", label: "eBay" },
@@ -8800,7 +8807,7 @@ export default function AddProductEditor({
                               return;
                             }
                             setSelectedPublishShop(target.key as PublishTarget);
-                            if (target.key !== "commandctr") {
+                            if (target.key !== "twinstr" && target.key !== "commandctr") {
                               const persistedId = productId ?? backendProductId;
                               const suffix = persistedId ? `&productId=${persistedId}` : "";
                               router.replace(`/products/add?market=${target.key}${suffix}`, { scroll: false });
@@ -8849,7 +8856,7 @@ export default function AddProductEditor({
                               }`}
                             />
                           )}
-                          {target.key === "commandctr" && (
+                          {(target.key === "twinstr" || target.key === "commandctr") && (
                             <Boxes
                               className={`h-4 w-4 transition-all duration-300 group-hover:scale-110 shrink-0 ${
                                 isSelected ? "text-[#0284c7] opacity-100" : "text-[#8ea0bf] opacity-50 group-hover:opacity-100"
@@ -8864,19 +8871,19 @@ export default function AddProductEditor({
                 </div>
 
                 <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-                  {selectedPublishShop === "commandctr" ? (
+                  {(selectedPublishShop === "twinstr" || selectedPublishShop === "commandctr") ? (
                     <button
                       className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#172544] px-4 text-xs font-bold text-white shadow-xs hover:opacity-90 active:scale-98 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
-                      disabled={publishSubmitting.commandctr}
+                      disabled={publishSubmitting.commandctr || publishSubmitting.twinstr}
                       onClick={() => void saveLocalDBDraft()}
                       type="button"
                     >
-                      {publishSubmitting.commandctr ? (
+                      {(publishSubmitting.commandctr || publishSubmitting.twinstr) ? (
                         <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-3.5 w-3.5 text-[#35d3ce]" />
                       )}
-                      Save to CommandCtr DB
+                      Save to Twinstr DB
                     </button>
                   ) : (
                     <button
@@ -8934,7 +8941,7 @@ export default function AddProductEditor({
                 <p className="font-semibold mb-1">Upload Targets Information:</p>
                 <ul className="list-disc pl-4 space-y-1">
                   <li><strong>Shopify</strong>: Fully integrated upload and update support via active endpoints.</li>
-                  <li><strong>CommandCtr DB</strong>: Saves the current product draft to the local SQLite database.</li>
+                  <li><strong>Twinstr DB</strong>: Saves the current product draft to the local SQLite database.</li>
                   {/* Restore this eBay line when eBay goes live again. */}
                   {/* <li><strong>eBay</strong>: Uses the real eBay Sandbox publish flow through the backend job worker.</li> */}
                   <li><strong>eBay, Etsy</strong>: Coming Soon. Existing generated data is preserved for reuse.</li>
@@ -8971,7 +8978,7 @@ export default function AddProductEditor({
                 </div>
               ) : null}
               <div className="mt-4 rounded-2xl border border-[#dbe2ee] bg-white px-4 py-3 text-xs leading-6 text-[#667a99]">
-                {selectedPublishShop === "shopify" ? "Shopify" : marketLabels[selectedPublishShop as MarketKey] || "CommandCtr"} upload needs:
+                {selectedPublishShop === "shopify" ? "Shopify" : marketLabels[selectedPublishShop as MarketKey] || "Twinstr"} upload needs:
                 <span className="font-semibold text-[#31415e]"> product title </span>
                 and
                 <span className="font-semibold text-[#31415e]"> default price</span>.
@@ -8980,7 +8987,7 @@ export default function AddProductEditor({
               {publishFieldErrors.title || publishFieldErrors.price ? (
                 <div className="mt-4 flex items-start gap-2 rounded-2xl border border-[#f3c1c1] bg-[#fff5f5] px-4 py-3 text-sm text-[#b24646]">
                   <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p>Fill the highlighted required fields before creating the {selectedPublishShop === "shopify" ? "Shopify" : marketLabels[selectedPublishShop as MarketKey] || "CommandCtr"} product.</p>
+                  <p>Fill the highlighted required fields before creating the {selectedPublishShop === "shopify" ? "Shopify" : marketLabels[selectedPublishShop as MarketKey] || "Twinstr"} product.</p>
                 </div>
               ) : null}
               {shopifyPublishMessage ? (

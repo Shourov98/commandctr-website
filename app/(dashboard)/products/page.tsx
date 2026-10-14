@@ -240,10 +240,10 @@ export default function ProductsPage() {
               </p>
               <div className="rounded-xl border border-[#f3d4d4] bg-[#fff7f7] px-4 py-3 text-sm leading-6 text-[#9a3d3d]">
                 {productToDelete.source === "shopify"
-                  ? "This will delete the product from Shopify and remove the synced CommandCtr product and inventory records."
+                  ? "This will delete the product from Shopify and remove the synced Twinstr product and inventory records."
                   : productToDelete.source === "product_ai"
                     ? "This will delete the Product AI draft record from the AI product library."
-                    : "This will delete the CommandCtr product record."}
+                    : "This will delete the Twinstr product record."}
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[#e7edf7] px-5 py-4">
@@ -572,7 +572,7 @@ export default function ProductsPage() {
                                   ? globalEditMode
                                     ? "Blur field to sync Shopify."
                                     : "View details. Inline edit is available here."
-                                  : product.source === "commandctr"
+                                  : (product.source === "twinstr" || product.source === "commandctr")
                                     ? "View or edit backend product record. eBay and Etsy are coming soon."
                                     : "View or edit Product AI record"
                               )}

@@ -565,7 +565,7 @@ export const useInventoryPageStore = create<InventoryPageState>()(
       },
     }),
     {
-      name: "commandctr-inventory-page",
+      name: "twinstr-inventory-page",
       version: 2,
       migrate: (persistedState) => {
         const state = persistedState as Partial<InventoryPageState> | undefined;

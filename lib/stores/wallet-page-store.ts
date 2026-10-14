@@ -81,7 +81,7 @@ export const useWalletPageStore = create<WalletPageState>()(
       },
     }),
     {
-      name: "commandctr-wallet-page",
+      name: "twinstr-wallet-page",
       partialize: (state) => ({
         overview: state.overview,
         shopifyConnected: state.shopifyConnected,
