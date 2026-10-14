@@ -155,7 +155,7 @@ export const useSupportPageStore = create<SupportPageState>()(
       },
     }),
     {
-      name: "commandctr-support-page",
+      name: "twinstr-support-page",
       partialize: (state) => ({
         query: state.query,
         statusFilter: state.statusFilter,

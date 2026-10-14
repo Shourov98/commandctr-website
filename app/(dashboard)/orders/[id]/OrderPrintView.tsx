@@ -120,7 +120,7 @@ export default function OrderPrintView({ mode }: { mode: "invoice" | "slip" }) {
           <>
             <header className="flex flex-col gap-6 border-b border-[#e7edf7] pb-6 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#8ea0bf]">CommandCtr</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#8ea0bf]">Twinstr</p>
                 <h1 className="mt-2 text-3xl font-semibold">{title}</h1>
                 <p className="mt-2 text-sm text-[#607394]">Order {normalizedOrder}</p>
               </div>

@@ -22,7 +22,7 @@ export type ProductRow = {
   shopifyVariantId?: string;
   inventoryItemId?: string;
   inventoryLocationId?: string;
-  source: "shopify" | "product_ai" | "commandctr";
+  source: "shopify" | "product_ai" | "twinstr" | "commandctr";
   marketplace?: string;
   ebayStatus?: string;
   ebayListingId?: string;
@@ -198,7 +198,7 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       shopifyVariantId: primaryVariant?.shopifyVariantId,
       inventoryItemId,
       inventoryLocationId: inventoryItemId ? (inventoryLocationByItemId.get(inventoryItemId) ?? "") : "",
-      source: (product.marketplace ?? "shopify") === "shopify" ? "shopify" : "commandctr",
+      source: (product.marketplace ?? "shopify") === "shopify" ? "shopify" : "twinstr",
       marketplace: product.marketplace,
       ebayStatus: product.ebayStatus,
       ebayListingId: product.ebayListingId,
@@ -407,7 +407,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
             products: state.products.filter((product) => product.id !== row.id),
             shopifyRowsCache: state.shopifyRowsCache.filter((product) => product.id !== row.id),
             rowFeedbackById: Object.fromEntries(Object.entries(state.rowFeedbackById).filter(([id]) => id !== row.id)),
-            pageMessage: row.source === "shopify" ? "Product deleted from Shopify and CommandCtr." : "Product deleted.",
+            pageMessage: row.source === "shopify" ? "Product deleted from Shopify and Twinstr." : "Product deleted.",
           }));
         } catch (error) {
           set((state) => ({
@@ -552,7 +552,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
       },
     }),
     {
-      name: "commandctr-products-page",
+      name: "twinstr-products-page",
       version: 2,
       migrate: (persistedState) => {
         const state = persistedState as Partial<ProductsPageState> | undefined;

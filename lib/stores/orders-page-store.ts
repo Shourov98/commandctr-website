@@ -185,7 +185,7 @@ export const useOrdersPageStore = create<OrdersPageState>()(
       },
     }),
     {
-      name: "commandctr-orders-page",
+      name: "twinstr-orders-page",
       partialize: (state) => ({
         orders: state.orders,
         stats: state.stats,

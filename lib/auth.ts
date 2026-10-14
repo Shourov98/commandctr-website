@@ -25,7 +25,8 @@ type ApiErrorResponse = {
   errors?: unknown;
 };
 
-const CLIENT_SESSION_STORAGE_KEY = "commandctr-merchant-auth";
+const CLIENT_SESSION_STORAGE_KEY = "twinstr-merchant-auth";
+const LEGACY_CLIENT_SESSION_STORAGE_KEY = "commandctr-merchant-auth";
 export const AUTH_REQUIRED_MESSAGE = "Your session expired. Sign in again.";
 
 const buildDefaultHeaders = (headers?: HeadersInit, body?: BodyInit | null): HeadersInit => {
@@ -107,7 +108,7 @@ export const authStorage = {
   },
 
   load(): AuthSession | null {
-    const raw = window.localStorage.getItem(this.key);
+    const raw = window.localStorage.getItem(this.key) || window.localStorage.getItem(LEGACY_CLIENT_SESSION_STORAGE_KEY);
     if (!raw) {
       return null;
     }
@@ -116,12 +117,14 @@ export const authStorage = {
       return JSON.parse(raw) as AuthSession;
     } catch {
       window.localStorage.removeItem(this.key);
+      window.localStorage.removeItem(LEGACY_CLIENT_SESSION_STORAGE_KEY);
       return null;
     }
   },
 
   clear() {
     window.localStorage.removeItem(this.key);
+    window.localStorage.removeItem(LEGACY_CLIENT_SESSION_STORAGE_KEY);
   },
 };
 

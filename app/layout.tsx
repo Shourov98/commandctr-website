@@ -3,8 +3,8 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CommandCtr",
-  description: "Marketplace command center",
+  title: "Twinstr",
+  description: "Twinstr marketplace command center",
 };
 
 export default function RootLayout({

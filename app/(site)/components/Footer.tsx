@@ -21,7 +21,7 @@ export default function Footer() {
         <div className="grid gap-14 lg:grid-cols-2">
           <div>
             <h2 className="text-2xl font-bold text-[#2fd1c8] sm:text-3xl">
-              CommandCtr
+              Twinstr
             </h2>
             <LinkIcon
               className="mt-8 h-6 w-6 text-[#e2e9f7]"
