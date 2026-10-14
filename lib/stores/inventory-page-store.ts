@@ -38,6 +38,7 @@ export type InventoryRowFeedback = {
 
 type LoadInventoryOptions = {
   forceRefresh?: boolean;
+  syncShopify?: boolean;
 };
 
 type InventoryPageState = {
@@ -49,6 +50,7 @@ type InventoryPageState = {
   hasHydrated: boolean;
   hasLoadedOnce: boolean;
   lastLoadedAt: number | null;
+  lastShopifySyncedAt: number | null;
   pageMessage: string;
   rowFeedbackById: Record<string, InventoryRowFeedback>;
   setSearchQuery: (value: string) => void;
@@ -67,14 +69,35 @@ type InventoryPageState = {
 };
 
 const INVENTORY_PAGE_REFRESH_INTERVAL_MS = 60_000;
+const SHOPIFY_SYNC_INTERVAL_MS = 5 * 60_000;
 const EBAY_COMING_SOON = true;
 
 function clampNonNegative(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
     return 0;
   }
 
-  return Math.max(0, value);
+  return Math.max(0, numeric);
+}
+
+function getInventoryLevelQuantity(level: ShopifyInventoryLevel) {
+  return clampNonNegative(level.quantity ?? level.shopifyQuantity ?? level.availableQuantity);
+}
+
+function getInventoryLevelProductId(level: ShopifyInventoryLevel) {
+  return level.productId ?? level.shopifyProductId ?? "";
+}
+
+function usableImageUrl(value?: string | null) {
+  const url = value?.trim();
+  if (!url) {
+    return undefined;
+  }
+  if (/\/ebay\.png(?:$|\?)/i.test(url)) {
+    return undefined;
+  }
+  return url;
 }
 
 function getDocumentId(record: InventoryRecord) {
@@ -136,7 +159,7 @@ function mergeEbayInventory(rows: InventoryRow[], ebayLevels: EbayInventoryLevel
         ebayListingId: level.listingId,
         ebayStatus: level.status,
         ebaySyncError: level.syncError,
-        featuredImage: nextRows[matchingIndex].featuredImage ?? level.featuredImage,
+        featuredImage: usableImageUrl(nextRows[matchingIndex].featuredImage ?? level.featuredImage),
       };
       continue;
     }
@@ -151,7 +174,7 @@ function mergeEbayInventory(rows: InventoryRow[], ebayLevels: EbayInventoryLevel
       locationName: "eBay Sandbox",
       title: level.title || "Untitled product",
       sku: level.sku || "N/A",
-      featuredImage: level.featuredImage,
+      featuredImage: usableImageUrl(level.featuredImage),
       masterCount: quantity,
       ebayQuantity: quantity,
       ebayListingId: level.listingId,
@@ -181,8 +204,9 @@ function mapInventoryRows(
     const rows = liveLevels.map((level) => {
       const key = getInventoryKey(level.inventoryItemId, level.locationId);
       const record = inventoryByKey.get(key);
-      const product = productByShopifyId.get(level.productId) ?? (record?.shopifyProductId ? productByShopifyId.get(record.shopifyProductId) : undefined);
-      const masterCount = clampNonNegative(level.quantity);
+      const levelProductId = getInventoryLevelProductId(level);
+      const product = productByShopifyId.get(levelProductId) ?? (record?.shopifyProductId ? productByShopifyId.get(record.shopifyProductId) : undefined);
+      const masterCount = getInventoryLevelQuantity(level);
       const safetyBuffer = clampNonNegative(record?.safetyBuffer ?? 0);
       const lowStockThreshold = clampNonNegative(record?.lowStockThreshold ?? 5);
       const derivedId = `${level.inventoryItemId}:${level.locationId || "unknown"}`;
@@ -192,19 +216,19 @@ function mapInventoryRows(
       return {
         id: rowId,
         productDocumentId: product?._id ?? product?.id ?? record?.productId,
-        shopifyProductId: record?.shopifyProductId ?? level.productId,
+        shopifyProductId: record?.shopifyProductId ?? levelProductId,
         inventoryItemId: level.inventoryItemId,
         locationId: level.locationId ?? "",
         locationName: record?.locationName ?? level.locationName ?? "Shopify",
         title: product?.title ?? record?.title ?? level.productTitle ?? "Untitled product",
         sku: record?.sku ?? level.sku ?? product?.variants[0]?.sku ?? "N/A",
-        featuredImage: product?.featuredImage,
+        featuredImage: usableImageUrl(product?.featuredImage),
         masterCount,
         available,
         safetyBuffer,
         lowStockThreshold,
         sortUpdatedAt: Math.max(getTimestampValue(product?.updatedAt), getTimestampValue(record?.updatedAt)),
-        sortShopifyId: getShopifyNumericId(record?.shopifyProductId ?? level.productId),
+        sortShopifyId: getShopifyNumericId(record?.shopifyProductId ?? levelProductId),
       };
     });
 
@@ -225,7 +249,7 @@ function mapInventoryRows(
   const rows = activeInventory.map((record) => {
     const product = record.shopifyProductId ? productByShopifyId.get(record.shopifyProductId) : undefined;
     const liveLevel = liveByInventoryKey.get(getInventoryKey(record.inventoryItemId, record.locationId));
-    const masterCount = clampNonNegative(liveLevel?.quantity ?? record.shopifyQuantity ?? 0);
+    const masterCount = liveLevel ? getInventoryLevelQuantity(liveLevel) : clampNonNegative(record.shopifyQuantity ?? record.availableQuantity ?? 0);
     const safetyBuffer = clampNonNegative(record.safetyBuffer ?? 0);
     const available = clampNonNegative(masterCount - safetyBuffer);
     const lowStockThreshold = clampNonNegative(record.lowStockThreshold ?? 5);
@@ -239,7 +263,7 @@ function mapInventoryRows(
       locationName: record.locationName ?? liveLevel?.locationName ?? "",
       title: product?.title ?? record.title ?? liveLevel?.productTitle ?? "Untitled product",
       sku: record.sku ?? liveLevel?.sku ?? product?.variants[0]?.sku ?? "",
-      featuredImage: product?.featuredImage,
+      featuredImage: usableImageUrl(product?.featuredImage),
       masterCount,
       available,
       safetyBuffer,
@@ -280,6 +304,7 @@ const resetInventoryState = () => ({
   items: [],
   hasLoadedOnce: false,
   lastLoadedAt: null,
+  lastShopifySyncedAt: null,
   rowFeedbackById: {},
 });
 
@@ -294,6 +319,7 @@ export const useInventoryPageStore = create<InventoryPageState>()(
       hasHydrated: false,
       hasLoadedOnce: false,
       lastLoadedAt: null,
+      lastShopifySyncedAt: null,
       pageMessage: "",
       rowFeedbackById: {},
       setSearchQuery: (value) => set({ searchQuery: value }),
@@ -305,6 +331,7 @@ export const useInventoryPageStore = create<InventoryPageState>()(
       },
       async loadInventory(options) {
         const forceRefresh = options?.forceRefresh ?? false;
+        const syncShopify = options?.syncShopify ?? false;
         const state = get();
 
         if (state.isLoading && state.hasLoadedOnce && !forceRefresh) {
@@ -321,6 +348,26 @@ export const useInventoryPageStore = create<InventoryPageState>()(
             lastLoadedAt: Date.now(),
             pageMessage: "",
           });
+
+          const shouldSyncShopify =
+            syncShopify &&
+            (!state.lastShopifySyncedAt || Date.now() - state.lastShopifySyncedAt > SHOPIFY_SYNC_INTERVAL_MS);
+          if (shouldSyncShopify) {
+            void (async () => {
+              try {
+                await productsApi.syncShopifyProducts();
+                const nextRows = await fetchInventoryData();
+                set({
+                  items: nextRows,
+                  lastShopifySyncedAt: Date.now(),
+                  lastLoadedAt: Date.now(),
+                  pageMessage: "",
+                });
+              } catch {
+                set({ pageMessage: "Inventory loaded from database. Shopify background sync did not complete." });
+              }
+            })();
+          }
         } catch (error) {
           if (isAuthRequiredError(error)) {
             set({
@@ -347,6 +394,7 @@ export const useInventoryPageStore = create<InventoryPageState>()(
           set({
             pageMessage:
               staleCount > 0 ? `Inventory refreshed. ${staleCount} stale rows hidden.` : `Imported ${result.count} Shopify products and refreshed inventory.`,
+            lastShopifySyncedAt: Date.now(),
           });
         } catch (error) {
           if (isAuthRequiredError(error)) {
@@ -518,12 +566,17 @@ export const useInventoryPageStore = create<InventoryPageState>()(
     }),
     {
       name: "commandctr-inventory-page",
+      version: 2,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<InventoryPageState> | undefined;
+        return {
+          searchQuery: state?.searchQuery ?? "",
+          globalEditMode: state?.globalEditMode ?? false,
+        };
+      },
       partialize: (state) => ({
-        items: state.items,
         searchQuery: state.searchQuery,
         globalEditMode: state.globalEditMode,
-        hasLoadedOnce: state.hasLoadedOnce,
-        lastLoadedAt: state.lastLoadedAt,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) {

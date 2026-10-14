@@ -70,15 +70,19 @@ export type ProductCreatePayload = {
 };
 
 export type ShopifyInventoryLevel = {
-  productId: string;
-  productTitle: string;
-  variantId: string;
-  variantTitle: string;
+  productId?: string;
+  productTitle?: string;
+  variantId?: string;
+  variantTitle?: string;
+  shopifyProductId?: string;
+  shopifyVariantId?: string;
   inventoryItemId: string;
   sku: string;
-  quantity: number;
+  quantity?: number;
+  shopifyQuantity?: number;
+  availableQuantity?: number;
   locationId: string;
-  locationName: string;
+  locationName?: string;
 };
 
 export type ShopifyVariantPriceResult = {
@@ -141,8 +145,26 @@ export const productsApi = {
     });
   },
 
+  deleteProduct(productId: string) {
+    return requestWithAuth<void>(`/products/${encodeURIComponent(productId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  deleteProductAiProduct(productId: string) {
+    return fetch(`/api/product-ai/products/${encodeURIComponent(productId)}`, {
+      method: "DELETE",
+    });
+  },
+
   importShopifyProducts() {
     return requestWithAuth<ShopifyImportProductsResult>("/shopify/import-products", {
+      method: "POST",
+    });
+  },
+
+  syncShopifyProducts() {
+    return requestWithAuth<ShopifyImportProductsResult>("/shopify/sync-products", {
       method: "POST",
     });
   },

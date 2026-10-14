@@ -42,6 +42,25 @@ function toSafeStock(value: unknown) {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
 }
 
+function getInventoryLevelQuantity(level: ShopifyInventoryLevel) {
+  return toSafeStock(level.quantity ?? level.shopifyQuantity ?? level.availableQuantity);
+}
+
+function getInventoryLevelProductId(level: ShopifyInventoryLevel) {
+  return level.productId ?? level.shopifyProductId ?? "";
+}
+
+function usableImageUrl(value?: string | null) {
+  const url = value?.trim();
+  if (!url) {
+    return undefined;
+  }
+  if (/\/ebay\.png(?:$|\?)/i.test(url)) {
+    return undefined;
+  }
+  return url;
+}
+
 export type ProductAiListItem = {
   id: string;
   status: string;
@@ -73,9 +92,11 @@ type PaginationState = {
 
 type LoadPageOptions = {
   refreshShopify?: boolean;
+  syncShopify?: boolean;
 };
 
 const PRODUCTS_PAGE_REFRESH_INTERVAL_MS = 60_000;
+const SHOPIFY_SYNC_INTERVAL_MS = 5 * 60_000;
 
 type ProductsPageState = {
   products: ProductRow[];
@@ -91,6 +112,7 @@ type ProductsPageState = {
   hasLoadedOnce: boolean;
   hasHydrated: boolean;
   lastLoadedAt: number | null;
+  lastShopifySyncedAt: number | null;
   setSearchQuery: (value: string) => void;
   toggleGlobalEditMode: () => void;
   markHydrated: () => void;
@@ -98,6 +120,7 @@ type ProductsPageState = {
   loadPage: (page?: number, options?: LoadPageOptions) => Promise<void>;
   importShopify: () => Promise<void>;
   changePage: (nextPage: number) => Promise<void>;
+  deleteProduct: (row: ProductRow) => Promise<void>;
   updateShopifyPriceDraft: (rowId: string, nextPrice: string) => void;
   saveShopifyPrice: (row: ProductRow) => Promise<void>;
   updateStockDraft: (rowId: string, nextStock: string) => void;
@@ -124,7 +147,7 @@ function buildInventoryQuantityByItemId(levels: ShopifyInventoryLevel[]) {
       continue;
     }
 
-    totals.set(level.inventoryItemId, (totals.get(level.inventoryItemId) ?? 0) + Math.max(level.quantity, 0));
+    totals.set(level.inventoryItemId, (totals.get(level.inventoryItemId) ?? 0) + getInventoryLevelQuantity(level));
   }
 
   return totals;
@@ -134,11 +157,12 @@ function buildInventoryQuantityByProductId(levels: ShopifyInventoryLevel[]) {
   const totals = new Map<string, number>();
 
   for (const level of levels) {
-    if (!level.productId) {
+    const productId = getInventoryLevelProductId(level);
+    if (!productId) {
       continue;
     }
 
-    totals.set(level.productId, (totals.get(level.productId) ?? 0) + toSafeStock(level.quantity));
+    totals.set(productId, (totals.get(productId) ?? 0) + getInventoryLevelQuantity(level));
   }
 
   return totals;
@@ -169,7 +193,7 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       productType: product.productType ?? "",
       status: product.status ?? "DRAFT",
       stock: toSafeStock(liveStock),
-      featuredImage: product.featuredImage,
+      featuredImage: usableImageUrl(product.featuredImage),
       shopifyPrice: primaryVariant?.price ?? "",
       shopifyVariantId: primaryVariant?.shopifyVariantId,
       inventoryItemId,
@@ -196,7 +220,7 @@ function mapProductAiRows(products: ProductAiListItem[]) {
     productType: product.product_type,
     status: product.status ?? "DRAFT",
     stock: 0,
-    featuredImage: product.preview_image_path,
+    featuredImage: usableImageUrl(product.preview_image_path),
     shopifyPrice: product.default_price?.trim() ?? "",
     marketplace: "product_ai",
     source: "product_ai",
@@ -207,16 +231,17 @@ function mapProductAiRows(products: ProductAiListItem[]) {
 
 function sortProductRows(rows: ProductRow[]) {
   return [...rows].sort((left, right) => {
-    if (left.source !== right.source) {
-      const weight = { commandctr: 0, shopify: 1, product_ai: 2 } as const;
-      return weight[left.source] - weight[right.source];
-    }
-
     const leftTime = Date.parse(left.updatedAt ?? left.createdAt ?? "");
     const rightTime = Date.parse(right.updatedAt ?? right.createdAt ?? "");
     const safeLeftTime = Number.isFinite(leftTime) ? leftTime : 0;
     const safeRightTime = Number.isFinite(rightTime) ? rightTime : 0;
-    return safeRightTime - safeLeftTime;
+    if (safeRightTime !== safeLeftTime) {
+      return safeRightTime - safeLeftTime;
+    }
+
+    const leftShopifyId = Number(left.shopifyProductId.match(/(\d+)$/)?.[1] ?? 0);
+    const rightShopifyId = Number(right.shopifyProductId.match(/(\d+)$/)?.[1] ?? 0);
+    return rightShopifyId - leftShopifyId;
   });
 }
 
@@ -238,7 +263,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
       pagination: { page: 1, page_size: 20, total_items: 0, total_pages: 0 },
       searchQuery: "",
       globalEditMode: false,
-      isLoading: true,
+      isLoading: false,
       isImporting: false,
       pageMessage: "",
       rowFeedbackById: {},
@@ -247,6 +272,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
       hasLoadedOnce: false,
       hasHydrated: false,
       lastLoadedAt: null,
+      lastShopifySyncedAt: null,
       setSearchQuery: (value) => set({ searchQuery: value }),
       toggleGlobalEditMode: () => set((state) => ({ globalEditMode: !state.globalEditMode })),
       markHydrated: () => set({ hasHydrated: true }),
@@ -258,6 +284,11 @@ export const useProductsPageStore = create<ProductsPageState>()(
         const state = get();
         const targetPage = page ?? state.pagination.page;
         const refreshShopify = options?.refreshShopify ?? false;
+        const syncShopify = options?.syncShopify ?? false;
+
+        if (state.isLoading && state.hasLoadedOnce && !refreshShopify) {
+          return;
+        }
 
         set({ isLoading: true });
 
@@ -271,16 +302,57 @@ export const useProductsPageStore = create<ProductsPageState>()(
             shopifyRows = mapProductRows(productItems, inventoryLevels);
           }
 
-          const productAiPayload = await fetchProductAiPage(targetPage, state.pagination.page_size);
+          let productAiPayload: ProductAiProductsResponse | null = null;
+          let productAiMessage = "";
+          try {
+            productAiPayload = await fetchProductAiPage(targetPage, state.pagination.page_size);
+          } catch (error) {
+            productAiMessage = error instanceof Error ? error.message : "Could not load AI-generated products.";
+          }
+
           set({
-            products: sortProductRows([...shopifyRows, ...mapProductAiRows(productAiPayload.items)]),
-            pagination: productAiPayload.pagination,
+            products: sortProductRows([...shopifyRows, ...mapProductAiRows(productAiPayload?.items ?? [])]),
+            pagination: productAiPayload?.pagination ?? {
+              ...state.pagination,
+              page: targetPage,
+              total_items: 0,
+              total_pages: 0,
+            },
             shopifyRowsCache: shopifyRows,
             hasLoadedShopifyCache: true,
             hasLoadedOnce: true,
             lastLoadedAt: Date.now(),
-            pageMessage: "",
+            pageMessage: productAiMessage,
           });
+
+          const shouldSyncShopify =
+            syncShopify &&
+            (!state.lastShopifySyncedAt || Date.now() - state.lastShopifySyncedAt > SHOPIFY_SYNC_INTERVAL_MS);
+          if (shouldSyncShopify) {
+            void (async () => {
+              try {
+                await productsApi.syncShopifyProducts();
+                const [productItems, inventoryLevels] = await Promise.all([
+                  productsApi.getProducts(),
+                  productsApi.getShopifyInventory(),
+                ]);
+                const nextShopifyRows = mapProductRows(productItems, inventoryLevels);
+                const current = get();
+                set({
+                  products: sortProductRows([
+                    ...nextShopifyRows,
+                    ...current.products.filter((row) => row.source === "product_ai"),
+                  ]),
+                  shopifyRowsCache: nextShopifyRows,
+                  hasLoadedShopifyCache: true,
+                  lastShopifySyncedAt: Date.now(),
+                  pageMessage: current.pageMessage,
+                });
+              } catch {
+                set({ pageMessage: "Products loaded from database. Shopify background sync did not complete." });
+              }
+            })();
+          }
         } catch (error) {
           set({
             pageMessage: error instanceof ApiClientError ? error.message : error instanceof Error ? error.message : "Could not load product listings.",
@@ -295,7 +367,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
         try {
           const result = await productsApi.importShopifyProducts();
           await get().loadPage(get().pagination.page, { refreshShopify: true });
-          set({ pageMessage: `Imported ${result.count} Shopify products.` });
+          set({ pageMessage: `Imported ${result.count} Shopify products.`, lastShopifySyncedAt: Date.now() });
         } catch (error) {
           set({
             pageMessage: error instanceof ApiClientError ? error.message : "Could not import Shopify products.",
@@ -311,6 +383,49 @@ export const useProductsPageStore = create<ProductsPageState>()(
         }
 
         await get().loadPage(nextPage);
+      },
+      async deleteProduct(row) {
+        set((state) => ({
+          rowFeedbackById: {
+            ...state.rowFeedbackById,
+            [row.id]: { tone: "saving", message: row.source === "shopify" ? "Deleting from Shopify..." : "Deleting product..." },
+          },
+        }));
+
+        try {
+          if (row.source === "product_ai") {
+            const response = await productsApi.deleteProductAiProduct(row.id);
+            if (!response.ok) {
+              const errorBody = (await response.json().catch(() => null)) as { detail?: string } | null;
+              throw new Error(errorBody?.detail ?? "Could not delete Product AI record.");
+            }
+          } else {
+            await productsApi.deleteProduct(row.id);
+          }
+
+          set((state) => ({
+            products: state.products.filter((product) => product.id !== row.id),
+            shopifyRowsCache: state.shopifyRowsCache.filter((product) => product.id !== row.id),
+            rowFeedbackById: Object.fromEntries(Object.entries(state.rowFeedbackById).filter(([id]) => id !== row.id)),
+            pageMessage: row.source === "shopify" ? "Product deleted from Shopify and CommandCtr." : "Product deleted.",
+          }));
+        } catch (error) {
+          set((state) => ({
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: {
+                tone: "error",
+                message:
+                  error instanceof ApiClientError
+                    ? error.message
+                    : error instanceof Error
+                      ? error.message
+                      : "Could not delete product.",
+              },
+            },
+          }));
+          throw error;
+        }
       },
       updateShopifyPriceDraft(rowId, nextPrice) {
         set((state) => ({
@@ -438,15 +553,17 @@ export const useProductsPageStore = create<ProductsPageState>()(
     }),
     {
       name: "commandctr-products-page",
+      version: 2,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<ProductsPageState> | undefined;
+        return {
+          searchQuery: state?.searchQuery ?? "",
+          globalEditMode: state?.globalEditMode ?? false,
+        };
+      },
       partialize: (state) => ({
-        products: state.products,
-        pagination: state.pagination,
         searchQuery: state.searchQuery,
         globalEditMode: state.globalEditMode,
-        shopifyRowsCache: state.shopifyRowsCache,
-        hasLoadedShopifyCache: state.hasLoadedShopifyCache,
-        hasLoadedOnce: state.hasLoadedOnce,
-        lastLoadedAt: state.lastLoadedAt,
       }),
       onRehydrateStorage: () => (state) => {
         state?.markHydrated();

@@ -12,15 +12,17 @@ import {
   Loader2,
   Plus,
   Search,
+  Trash2,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const EMPTY_MARKET_STATUS: Record<ExternalMarketState, string> = {
   empty: "Empty",
 };
-import { useProductsPageStore, type ExternalMarketState } from "@/lib/stores/products-page-store";
+import { useProductsPageStore, type ExternalMarketState, type ProductRow } from "@/lib/stores/products-page-store";
 
 function toCurrencyValue(value: string) {
   const numeric = Number(value);
@@ -132,6 +134,8 @@ export default function ProductsPage() {
   const pageMessage = useProductsPageStore((state) => state.pageMessage);
   const rowFeedbackById = useProductsPageStore((state) => state.rowFeedbackById);
   const hasHydrated = useProductsPageStore((state) => state.hasHydrated);
+  const hasLoadedOnce = useProductsPageStore((state) => state.hasLoadedOnce);
+  const shouldRefresh = useProductsPageStore((state) => state.shouldRefresh);
   const setSearchQuery = useProductsPageStore((state) => state.setSearchQuery);
   const toggleGlobalEditMode = useProductsPageStore((state) => state.toggleGlobalEditMode);
   const loadPage = useProductsPageStore((state) => state.loadPage);
@@ -141,14 +145,24 @@ export default function ProductsPage() {
   const saveShopifyPrice = useProductsPageStore((state) => state.saveShopifyPrice);
   const updateStockDraft = useProductsPageStore((state) => state.updateStockDraft);
   const saveStock = useProductsPageStore((state) => state.saveStock);
+  const deleteProduct = useProductsPageStore((state) => state.deleteProduct);
+  const [productToDelete, setProductToDelete] = useState<ProductRow | null>(null);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
 
   useEffect(() => {
     if (!hasHydrated) {
       return;
     }
 
-    void loadPage(undefined, { refreshShopify: true });
-  }, [hasHydrated, loadPage]);
+    if (!hasLoadedOnce) {
+      void loadPage(undefined, { refreshShopify: true, syncShopify: true });
+      return;
+    }
+
+    if (shouldRefresh()) {
+      void loadPage(undefined, { refreshShopify: true, syncShopify: true });
+    }
+  }, [hasHydrated, hasLoadedOnce, loadPage, shouldRefresh]);
 
   const showInitialLoading = !hasHydrated || (isLoading && products.length === 0);
   const showRefreshing = isLoading && products.length > 0;
@@ -186,8 +200,74 @@ export default function ProductsPage() {
     };
   }, [products, rowFeedbackById]);
 
+  async function confirmDeleteProduct() {
+    if (!productToDelete) {
+      return;
+    }
+
+    setIsDeletingProduct(true);
+    try {
+      await deleteProduct(productToDelete);
+      setProductToDelete(null);
+    } finally {
+      setIsDeletingProduct(false);
+    }
+  }
+
   return (
     <section className="px-4 py-5 md:px-8 md:py-8">
+      {productToDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#101827]/60 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-[#dbe3f2] bg-white shadow-[0_24px_70px_-30px_rgba(15,23,42,0.75)]">
+            <div className="flex items-start justify-between border-b border-[#e7edf7] px-5 py-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wide text-[#d28e10]">Delete product</p>
+                <h2 className="mt-1 text-xl font-semibold text-[#1f2c46]">Remove this listing?</h2>
+              </div>
+              <button
+                aria-label="Close delete confirmation"
+                className="rounded-lg p-1.5 text-[#7f8da8] transition hover:bg-[#eef3fb] hover:text-[#223763]"
+                disabled={isDeletingProduct}
+                onClick={() => setProductToDelete(null)}
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              <p className="text-sm leading-6 text-[#53627c]">
+                You are about to delete <span className="font-semibold text-[#1f2c46]">{productToDelete.title}</span>.
+              </p>
+              <div className="rounded-xl border border-[#f3d4d4] bg-[#fff7f7] px-4 py-3 text-sm leading-6 text-[#9a3d3d]">
+                {productToDelete.source === "shopify"
+                  ? "This will delete the product from Shopify and remove the synced CommandCtr product and inventory records."
+                  : productToDelete.source === "product_ai"
+                    ? "This will delete the Product AI draft record from the AI product library."
+                    : "This will delete the CommandCtr product record."}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-[#e7edf7] px-5 py-4">
+              <button
+                className="h-10 rounded-xl border border-[#d7deeb] bg-white px-4 text-sm font-semibold text-[#465574] transition hover:bg-[#f8fafe] disabled:opacity-60"
+                disabled={isDeletingProduct}
+                onClick={() => setProductToDelete(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#ea2e3f] px-4 text-sm font-semibold text-white transition hover:bg-[#c92635] disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={isDeletingProduct}
+                onClick={() => void confirmDeleteProduct()}
+                type="button"
+              >
+                {isDeletingProduct ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-2xl bg-[#283d6e] p-4 text-white shadow-[0_18px_40px_-28px_rgba(17,33,64,0.9)]">
@@ -466,6 +546,15 @@ export default function ProductsPage() {
                               >
                                 <Edit3 className="h-4 w-4" />
                               </Link>
+                              <button
+                                aria-label={`Delete ${product.title}`}
+                                className="text-[#ea2e3f] transition hover:text-[#b61d2b]"
+                                onClick={() => setProductToDelete(product)}
+                                title="Delete product"
+                                type="button"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
                             <p
                               className={`text-center text-xs ${

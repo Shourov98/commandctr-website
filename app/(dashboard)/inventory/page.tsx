@@ -121,12 +121,12 @@ export default function InventoryPage() {
 
   useEffect(() => {
     if (!hasLoadedOnce || items.length === 0) {
-      void loadInventory();
+      void loadInventory({ syncShopify: true });
       return;
     }
 
     if (shouldRefresh()) {
-      void loadInventory();
+      void loadInventory({ syncShopify: true });
     }
   }, [hasLoadedOnce, items.length, loadInventory, shouldRefresh]);
 
