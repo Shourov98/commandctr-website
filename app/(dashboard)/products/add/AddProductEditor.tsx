@@ -6135,58 +6135,54 @@ export default function AddProductEditor({
       />
 
       <div className="space-y-6">
-        <header className="sticky top-0 z-30 overflow-hidden rounded-[28px] border border-[#3c4d78] bg-[#1a2545] px-4 py-4 text-white shadow-[0_22px_50px_-30px_rgba(7,17,41,0.95)] md:px-5">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(90,221,232,0.14),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(120,149,255,0.12),transparent_30%)]" />
-          <div className="relative flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <header className="sticky top-0 z-30 rounded-2xl border border-[#dbe2ee] bg-white/95 px-4 py-3 shadow-[0_4px_20px_-10px_rgba(17,31,56,0.08)] backdrop-blur-md md:px-5">
+          <div className="flex flex-col gap-2.5">
+            {/* Top row: Navigation, Title & Status */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                 <Link
                   href={backHref}
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#5e739f] bg-white/6 px-3 text-sm font-semibold text-white hover:bg-white/12 transition-colors cursor-pointer"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#dbe2ee] bg-white px-2.5 text-xs font-semibold text-[#415371] shadow-xs transition hover:bg-[#f4f7fb] hover:text-[#17223b] cursor-pointer"
                 >
                   &larr; Back
                 </Link>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9eb1d4]">{editorContextLabel} &nbsp;&gt;&nbsp; {editorTitle}</p>
-                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-                    <h1 className="text-[1.85rem] font-bold leading-none tracking-[-0.03em] text-white">{editorTitle}</h1>
-                    {displayId ? (
-                      <span className="rounded-full border border-[#5b7099] bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-[#dce7fb]">
-                        ID: {displayId.slice(0, 8)}
-                      </span>
-                    ) : null}
-                  </div>
+                <div className="hidden h-4 w-px bg-[#e2e8f0] sm:block" />
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7f92b1]">
+                    {editorContextLabel} &gt;
+                  </span>
+                  <h1 className="text-base font-bold text-[#1f2c44] sm:text-lg">{editorTitle}</h1>
+                  {displayId ? (
+                    <span className="rounded-md border border-[#dbe2ee] bg-[#f1f5fa] px-2 py-0.5 text-[11px] font-semibold text-[#526687]">
+                      ID: {displayId.slice(0, 8)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="flex justify-start xl:justify-end">
+              <div className="flex items-center justify-end">
                 <span
                   title={statusMessage}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-300 xl:max-w-[320px] ${
-                  isStatusError 
-                    ? "bg-[#ef4444]/10 text-[#fca5a5] border-[#ef4444]/40 shadow-[0_0_12px_rgba(239,68,68,0.2)] animate-pulse" 
-                    : "bg-[#1b325f]/50 text-[#7adfff] border-[#3059a4]/50"
-                }`}
+                  className={`inline-flex max-w-[260px] sm:max-w-[340px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all duration-300 ${
+                    isStatusError 
+                      ? "bg-[#fef2f2] text-[#dc2626] border-[#fecaca] shadow-[0_0_10px_rgba(239,68,68,0.1)] animate-pulse" 
+                      : "bg-[#ecf5ff] text-[#1e60b5] border-[#cce1ff]"
+                  }`}
                 >
-                  {isStatusError && <CircleAlert className="h-3.5 w-3.5 text-[#ef4444] shrink-0" />}
+                  {isStatusError && <CircleAlert className="h-3.5 w-3.5 text-[#dc2626] shrink-0" />}
                   <span className="truncate">{displayStatusMessage}</span>
                 </span>
               </div>
             </div>
 
-            <div className="grid gap-4 border-t border-white/8 pt-4 xl:grid-cols-[minmax(0,1.25fr)_auto] xl:items-end">
-              <div className="min-w-0 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9eb1d4]">Source Title</p>
-                  {selectedImage ? (
-                    <span className="max-w-[210px] truncate rounded-full border border-[#56709d] bg-white/7 px-2.5 py-1 text-[11px] font-medium text-[#cfe0ff]">
-                      Image: {selectedImage.name}
-                    </span>
-                  ) : null}
-                </div>
+            {/* Bottom row: Source Title bar & Compact action controls */}
+            <div className="flex flex-col gap-2.5 border-t border-[#edf2f7] pt-2.5 lg:flex-row lg:items-center lg:justify-between">
+              {/* Source Title Input */}
+              <div className="relative flex min-w-0 flex-1 items-center">
                 <input
-                  className={`h-12 w-full rounded-2xl bg-white/7 px-4 text-base font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition placeholder:text-[#aab8d6] ${publishFieldErrors.title ? "border border-[#ff7d7d] focus:border-[#ff9b9b]" : "border border-[#51658f] focus:border-[#8ea0bf]"
-                    }`}
+                  className={`h-9 w-full rounded-xl border bg-[#f8fbfe] pl-3 pr-3 text-xs font-medium text-[#1f2c44] shadow-xs outline-none transition placeholder:text-[#94a3b8] focus:border-[#2b7cf5] focus:bg-white focus:ring-2 focus:ring-[#2b7cf5]/10 ${
+                    publishFieldErrors.title ? "border-[#ef4444] focus:border-[#ef4444]" : "border-[#dbe2ee]"
+                  } ${selectedImage ? "pr-32 sm:pr-40" : ""}`}
                   onChange={(event) => {
                     const value = event.target.value;
                     setSourceTitle(value);
@@ -6195,84 +6191,91 @@ export default function AddProductEditor({
                       setPublishFieldErrors((prev) => ({ ...prev, title: false }));
                     }
                   }}
-                  placeholder="Enter the source title used for AI generation"
+                  placeholder="Enter the source title used for AI generation..."
                   type="text"
                   value={sourceTitle}
                 />
+                {selectedImage ? (
+                  <span
+                    title={selectedImage.name}
+                    className="absolute right-2 max-w-[120px] sm:max-w-[150px] truncate rounded-md border border-[#dbe2ee] bg-white px-2 py-0.5 text-[10px] font-medium text-[#465a7e] shadow-xs"
+                  >
+                    Image: {selectedImage.name}
+                  </span>
+                ) : null}
               </div>
 
-              <div className="grid gap-2 xl:min-w-[560px] xl:grid-cols-[auto_auto_auto] xl:items-end">
-                <div className="rounded-2xl border border-[#51658f]/45 bg-white/6 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-                    <button
-                      className="h-9 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-30 cursor-pointer whitespace-nowrap"
-                      disabled={!hasSavedDraft}
-                      onClick={() => loadSavedDraft()}
-                      type="button"
-                    >
-                      Load
-                    </button>
-                    <button
-                      className="h-9 rounded-xl px-3 text-xs font-semibold text-[#dce7fb] transition hover:bg-white/10 cursor-pointer whitespace-nowrap"
-                      onClick={() => clearSavedDraft()}
-                      type="button"
-                    >
-                      Clear
-                    </button>
-                    <button
-                      className={`h-9 rounded-xl px-3 text-xs font-semibold transition hover:bg-white/10 disabled:opacity-30 cursor-pointer whitespace-nowrap ${effectiveDraftSaveState === "saved"
-                          ? "text-[#8ea0bf] opacity-60"
-                          : "text-[#ccebdc]"
-                        }`}
-                      disabled={isSaving}
-                      onClick={() => void saveDraft()}
-                      type="button"
-                    >
-                      {effectiveDraftSaveState === "saving" ? "Saving..." : effectiveDraftSaveState === "saved" ? "Saved" : "Save"}
-                    </button>
-                    <button
-                      className="h-9 rounded-xl px-3 text-xs font-semibold text-[#ffd8de] transition hover:bg-[#39151d] disabled:opacity-30 cursor-pointer whitespace-nowrap"
-                      disabled={isDeletingDraft}
-                      onClick={() => void deleteDraft()}
-                      type="button"
-                    >
-                      {isDeletingDraft ? "..." : "Delete"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
+              {/* Action Toolbar */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Draft segmented controls */}
+                <div className="flex items-center rounded-xl border border-[#dbe2ee] bg-[#f4f7fb] p-0.5 shadow-xs">
                   <button
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#51658f] bg-white/6 px-4 text-sm font-semibold text-white transition hover:bg-white/10 cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                    onClick={() => uploadInputRef.current?.click()}
+                    className="h-7 rounded-lg px-2 text-xs font-semibold text-[#415371] transition hover:bg-white hover:text-[#17223b] hover:shadow-xs disabled:opacity-30 cursor-pointer whitespace-nowrap"
+                    disabled={!hasSavedDraft}
+                    onClick={() => loadSavedDraft()}
                     type="button"
                   >
-                    <Upload className="h-4 w-4" />
-                    {selectedImage ? "Change Product" : "Upload Product"}
+                    Load
                   </button>
-
-                  {hasPersistedProduct ? (
-                    <button
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#51658f] bg-white/6 px-4 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60 cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                      disabled={isUploadingSourceImage || !selectedImage}
-                      onClick={() => void uploadProductSourceImage()}
-                      type="button"
-                    >
-                      {isUploadingSourceImage ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                      Upload Src
-                    </button>
-                  ) : (
-                    <div className="hidden sm:block" />
-                  )}
+                  <button
+                    className="h-7 rounded-lg px-2 text-xs font-semibold text-[#415371] transition hover:bg-white hover:text-[#17223b] hover:shadow-xs cursor-pointer whitespace-nowrap"
+                    onClick={() => clearSavedDraft()}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    className={`h-7 rounded-lg px-2 text-xs font-semibold transition hover:bg-white hover:shadow-xs disabled:opacity-30 cursor-pointer whitespace-nowrap ${
+                      effectiveDraftSaveState === "saved"
+                        ? "text-[#64748b] opacity-60"
+                        : "text-[#16a34a]"
+                    }`}
+                    disabled={isSaving}
+                    onClick={() => void saveDraft()}
+                    type="button"
+                  >
+                    {effectiveDraftSaveState === "saving" ? "Saving..." : effectiveDraftSaveState === "saved" ? "Saved" : "Save"}
+                  </button>
+                  <button
+                    className="h-7 rounded-lg px-2 text-xs font-semibold text-[#ef4444] transition hover:bg-[#fee2e2] disabled:opacity-30 cursor-pointer whitespace-nowrap"
+                    disabled={isDeletingDraft}
+                    onClick={() => void deleteDraft()}
+                    type="button"
+                  >
+                    {isDeletingDraft ? "..." : "Delete"}
+                  </button>
                 </div>
 
+                {/* Upload Buttons */}
                 <button
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#35d3ce] px-5 text-sm font-bold text-[#153c53] shadow-[0_14px_30px_-20px_rgba(53,211,206,0.95)] transition hover:bg-[#2bc7c2] disabled:opacity-60 cursor-pointer"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-[#dbe2ee] bg-white px-3 text-xs font-semibold text-[#283854] shadow-xs transition hover:bg-[#f4f7fb] hover:border-[#cbd5e1] cursor-pointer"
+                  onClick={() => uploadInputRef.current?.click()}
+                  type="button"
+                >
+                  <Upload className="h-3.5 w-3.5 text-[#526687]" />
+                  {selectedImage ? "Change Product" : "Upload Product"}
+                </button>
+
+                {hasPersistedProduct && (
+                  <button
+                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-[#dbe2ee] bg-white px-3 text-xs font-semibold text-[#283854] shadow-xs transition hover:bg-[#f4f7fb] disabled:opacity-60 cursor-pointer"
+                    disabled={isUploadingSourceImage || !selectedImage}
+                    onClick={() => void uploadProductSourceImage()}
+                    type="button"
+                  >
+                    {isUploadingSourceImage ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 text-[#526687]" />}
+                    Upload Src
+                  </button>
+                )}
+
+                {/* Primary AI Button */}
+                <button
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#172544] to-[#263c70] px-3.5 text-xs font-bold text-white shadow-xs transition hover:opacity-90 active:scale-98 disabled:opacity-60 cursor-pointer"
                   disabled={isGenerating}
                   onClick={() => void generateProduct()}
                   type="button"
                 >
-                  {isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {isGenerating ? <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#35d3ce]" /> : <Sparkles className="h-3.5 w-3.5 text-[#35d3ce]" />}
                   {isGenerating ? "Generating..." : isImportMode ? "Generate Text" : "Generate AI"}
                 </button>
               </div>
