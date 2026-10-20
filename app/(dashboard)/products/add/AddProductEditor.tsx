@@ -45,6 +45,7 @@ import { ebayApi } from "@/lib/ebay";
 import { prepareProductAiImageUpload } from "@/lib/product-ai-upload";
 import { productsApi, type ProductCreatePayload, type ProductListItem } from "@/lib/products";
 import { shopifyProductsApi } from "@/lib/shopify-products";
+import { amazonProductsApi } from "@/lib/amazon-products";
 
 type MarketKey = "amazon" | "ebay" | "etsy" | "tiktok" | "shopify";
 
@@ -1100,6 +1101,94 @@ function withMissingEbayDraftDefaults(draft: ApiProduct, publishVendor: string) 
   return changed ? { ...draft, ebay: nextEbay } : draft;
 }
 
+function parseAmazonAttribute(attributes: Record<string, string>, key: string): Record<string, unknown> {
+  const raw = attributes[key]?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    return first && typeof first === "object" ? (first as Record<string, unknown>) : {};
+  } catch {
+    return { value: raw };
+  }
+}
+
+function amazonAttributeValue(attributes: Record<string, string>, key: string, field = "value") {
+  const value = parseAmazonAttribute(attributes, key)[field];
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function setAmazonAttribute(
+  attributes: Record<string, string>,
+  key: string,
+  value: string,
+  build: (value: string) => unknown = (next) => [{ value: next }],
+) {
+  const next = { ...attributes };
+  if (!value.trim()) {
+    delete next[key];
+  } else {
+    next[key] = JSON.stringify(build(value.trim()));
+  }
+  return next;
+}
+
+function isValidAmazonProductIdentifier(type: string, value: string) {
+  const digits = value.trim();
+  // Public documentation examples are not Twinstr product identifiers and must
+  // never be used for a production Amazon listing.
+  if (digits === "4006381333931") return false;
+  const lengths: Record<string, number[]> = {
+    ean: [8, 13],
+    upc: [12],
+    gtin: [8, 12, 13, 14],
+  };
+  if (!/^\d+$/.test(digits) || !(lengths[type] ?? []).includes(digits.length)) return false;
+  const numbers = digits.split("").map(Number);
+  const checkDigit = numbers.pop();
+  const sum = numbers
+    .reverse()
+    .reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 3 : 1), 0);
+  return checkDigit === (10 - (sum % 10)) % 10;
+}
+
+function amazonProductIdentifierMaxLength(type: string) {
+  return type === "upc" ? 12 : type === "ean" ? 13 : 14;
+}
+
+function sanitizeAmazonProductIdentifier(type: string, value: string) {
+  return value.replace(/\D/g, "").slice(0, amazonProductIdentifierMaxLength(type));
+}
+
+function validateAmazonRequiredAttributes(attributes: Record<string, string>) {
+  const errors: string[] = [];
+  const identifier = parseAmazonAttribute(attributes, "externally_assigned_product_identifier");
+  const identifierType = String(identifier.type ?? "ean").toLowerCase();
+  const identifierValue = String(identifier.value ?? "").trim();
+  if (!identifierValue) {
+    errors.push("External Product ID is required");
+  } else if (!isValidAmazonProductIdentifier(identifierType, identifierValue)) {
+    errors.push(`Enter a valid ${identifierType.toUpperCase()} with a correct check digit`);
+  }
+  if (!amazonAttributeValue(attributes, "supplier_declared_dg_hz_regulation")) {
+    errors.push("Dangerous Goods Regulation is required");
+  }
+  const country = amazonAttributeValue(attributes, "country_of_origin");
+  if (!/^[A-Z]{2}$/.test(country)) {
+    errors.push("Country of Origin must be a two-letter code such as GB");
+  }
+  return errors;
+}
+
+function withAmazonUkDefaults(attributes: Record<string, string>, productType: string) {
+  let next = setAmazonAttribute(attributes, "country_of_origin", "GB");
+  const isWaterBottle = /water\s*bottle|^bottle$/i.test(productType.trim());
+  if (isWaterBottle && !amazonAttributeValue(next, "supplier_declared_dg_hz_regulation")) {
+    next = setAmazonAttribute(next, "supplier_declared_dg_hz_regulation", "not_applicable");
+  }
+  return next;
+}
+
 const emptyProduct: ApiProduct = {
   core: {
     normalized_title: "",
@@ -1397,6 +1486,34 @@ function getEbaySandboxListingUrl(listingId?: string | null) {
 
 function safeTrim(value: string | null | undefined) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function formatAmazonPublishError(error: unknown) {
+  if (!(error instanceof ApiClientError)) {
+    return error instanceof Error ? error.message : "Could not upload to Amazon.";
+  }
+  const outer = error.details && typeof error.details === "object"
+    ? error.details as { details?: unknown }
+    : null;
+  const inner = outer?.details && typeof outer.details === "object"
+    ? outer.details as { issues?: unknown }
+    : null;
+  const issues = Array.isArray(inner?.issues) ? inner.issues : [];
+  const issueLines = issues
+    .map((issue) => {
+      if (!issue || typeof issue !== "object") return "";
+      const record = issue as { code?: unknown; message?: unknown; attributeNames?: unknown };
+      const message = typeof record.message === "string" ? record.message.trim() : "";
+      const code = typeof record.code === "string" ? record.code.trim() : "";
+      const attributes = Array.isArray(record.attributeNames)
+        ? record.attributeNames.filter((value): value is string => typeof value === "string").join(", ")
+        : "";
+      if (!message && !code) return "";
+      return `• ${attributes ? `${attributes}: ` : ""}${message || code}${code && message ? ` (${code})` : ""}`;
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+  return issueLines.length ? `${error.message}\n${issueLines.join("\n")}` : error.message;
 }
 
 function readImportPreviewFallback(recordId: string): ImportPreviewFallback | null {
@@ -4164,6 +4281,24 @@ export default function AddProductEditor({
     );
   }
 
+  function getAmazonProductType() {
+    return draft.core.product_type.trim() || draft.core.category.trim() || "";
+  }
+
+  function updateAmazonAttribute(
+    key: string,
+    value: string,
+    build?: (value: string) => unknown,
+  ) {
+    setDraft((prev) => ({
+      ...prev,
+      amazon: {
+        ...prev.amazon,
+        structured_attributes: setAmazonAttribute(prev.amazon.structured_attributes, key, value, build),
+      },
+    }));
+  }
+
   function getPublishCategory() {
     return draft.core.category.trim() || draft.core.product_type.trim() || "";
   }
@@ -4612,11 +4747,74 @@ export default function AddProductEditor({
     }
   }
 
+  async function uploadToAmazon(mode: "active" | "draft") {
+    const title = safeTrim(draft.amazon.title) || getPublishTitle();
+    const sku = publishSku.trim();
+    const normalizedPrice = getSanitizedPublishPrice();
+    const stock = getSanitizedPublishStock();
+    setShopifyPublishMessage("");
+
+    const missingFields: string[] = [];
+    if (!title) missingFields.push("Product title");
+    if (!sku) missingFields.push("SKU");
+    if (!normalizedPrice) missingFields.push("Default price");
+    const amazonAttributes = withAmazonUkDefaults(draft.amazon.structured_attributes, getAmazonProductType());
+    missingFields.push(...validateAmazonRequiredAttributes(amazonAttributes));
+    setPublishFieldErrors({ title: !title, price: !normalizedPrice });
+    if (missingFields.length) {
+      const message = `Required before Amazon upload: ${missingFields.join(", ")}.`;
+      setShopifyPublishMessage(message);
+      setStatusMessage(message);
+      return;
+    }
+
+    setShopifySubmitMode(mode);
+    setPublishSubmitting((prev) => ({ ...prev, amazon: true }));
+    setShopifyPublishMessage("Validating and submitting product to Amazon production...");
+    try {
+      const result = await amazonProductsApi.saveListing({
+        title,
+        sku,
+        price: normalizedPrice!,
+        quantity: stock,
+        description: safeTrim(draft.amazon.description) || getPublishDescription() || undefined,
+        brand: getPublishVendor() || undefined,
+        productType: getAmazonProductType() || "PRODUCT",
+        imagePath: draft.images.amazon.absolute_path || draft.images.amazon.relative_path || undefined,
+        bulletPoints: draft.amazon.bullet_points.filter((value) => value.trim()),
+        backendSearchTerms: draft.amazon.backend_search_terms.filter((value) => value.trim()),
+        attributes: amazonAttributes,
+      });
+      const savedProductId = result._id ?? result.id ?? null;
+      if (savedProductId) {
+        setBackendProductId(savedProductId);
+        persistDraftSnapshot({ ...buildDraftSnapshot(), backendProductId: savedProductId });
+      }
+      const issueCount = result.amazonIssues?.length ?? 0;
+      const environmentLabel = result.environment === "production" ? "Production" : "Sandbox";
+      const message = `Amazon ${environmentLabel} ${result.amazonStatus ?? "ACCEPTED"}. SKU: ${sku}.${issueCount ? ` Issues: ${issueCount}.` : ""} The submission was saved in CommandCtr.`;
+      setShopifyPublishMessage(message);
+      setStatusMessage(message);
+    } catch (error) {
+      const message = formatAmazonPublishError(error);
+      setShopifyPublishMessage(message);
+      setStatusMessage(message);
+    } finally {
+      setShopifySubmitMode(null);
+      setPublishSubmitting((prev) => ({ ...prev, amazon: false }));
+    }
+  }
+
   async function uploadToMockShop(shop: string, mode: "active" | "draft") {
     if (isComingSoonMarket(shop)) {
       const message = `${marketLabels[shop]} upload is coming soon.`;
       setShopifyPublishMessage(message);
       setStatusMessage(message);
+      return;
+    }
+
+    if (shop === "amazon") {
+      await uploadToAmazon(mode);
       return;
     }
 
@@ -4723,6 +4921,9 @@ export default function AddProductEditor({
     const missingFields: string[] = [];
     if (nextFieldErrors.title) missingFields.push("Product title");
     if (nextFieldErrors.price) missingFields.push("Default price");
+    if (!publishSku.trim()) missingFields.push("SKU");
+    const amazonAttributes = withAmazonUkDefaults(draft.amazon.structured_attributes, getAmazonProductType());
+    missingFields.push(...validateAmazonRequiredAttributes(amazonAttributes));
 
     if (missingFields.length > 0) {
       const msg = `Required before uploading to all shops: ${missingFields.join(", ")}.`;
@@ -4823,15 +5024,30 @@ export default function AddProductEditor({
               return "eBay: Use the dedicated eBay Sandbox publish button for the real publish flow.";
             }
 
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-            const randomId = generateMockListingId();
             let msg = "";
             if (shop === "amazon") {
-              const mockASIN = generateMockASIN();
-              msg = `Amazon: Success (ASIN: ${mockASIN})`;
+              const result = await amazonProductsApi.saveListing({
+                title: safeTrim(draft.amazon.title) || title,
+                sku: publishSku.trim(),
+                price: numericPrice.toFixed(2),
+                quantity: getSanitizedPublishStock(),
+                description: safeTrim(draft.amazon.description) || getPublishDescription() || undefined,
+                brand: getPublishVendor() || undefined,
+                productType: getAmazonProductType() || "PRODUCT",
+                imagePath: draft.images.amazon.absolute_path || draft.images.amazon.relative_path || undefined,
+                bulletPoints: draft.amazon.bullet_points.filter((value) => value.trim()),
+                backendSearchTerms: draft.amazon.backend_search_terms.filter((value) => value.trim()),
+                attributes: amazonAttributes,
+              });
+              const savedProductId = result._id ?? result.id ?? null;
+              if (savedProductId) setBackendProductId(savedProductId);
+              msg = `Amazon ${result.environment === "production" ? "Production" : "Sandbox"}: ${result.amazonStatus ?? "ACCEPTED"} (SKU: ${publishSku.trim()})`;
             } else if (shop === "tiktok") {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              const randomId = generateMockListingId();
               msg = `TikTok Shop: Success (Product ID: ${randomId})`;
             } else if (shop === "etsy") {
+              const randomId = generateMockListingId();
               msg = `Etsy: Success (Listing ID: ${randomId})`;
             }
             return msg;
@@ -6435,8 +6651,29 @@ export default function AddProductEditor({
 
                 {activeMarket === "amazon" ? (
                   <>
+                    <div className="rounded-2xl border border-[#bde8ee] bg-[#f2fdff] px-5 py-4 text-sm leading-6 text-[#4f6f85]">
+                      <p className="font-bold text-[#1f8f9b]">Amazon UK listing information</p>
+                      <p>
+                        These fields are mapped to Amazon SP-API attributes for the selected product type. Required fields can vary by category; Validation Preview will report any additional category-specific requirements without publishing the listing.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <EditableField
+                        helperText="Example: BOTTLE. Friendly names such as Water Bottle are resolved before validation."
+                        label="Amazon Product Type"
+                        onChange={(value) => setDraft((prev) => ({ ...prev, core: { ...prev.core, product_type: value } }))}
+                        value={getAmazonProductType()}
+                      />
+                      <EditableField
+                        helperText="The brand shown on the product or packaging."
+                        label="Brand"
+                        onChange={setPublishVendor}
+                        value={getPublishVendor()}
+                      />
+                    </div>
                     <EditableField
-                      label="Marketplace Title"
+                      helperText="Amazon item_name (UK English)."
+                      label="Amazon Product Title"
                       onChange={(value) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, title: value } }))}
                       value={draft.amazon.title}
                     />
@@ -6452,6 +6689,144 @@ export default function AddProductEditor({
                       onChange={(value) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, description: value } }))}
                       value={draft.amazon.description}
                     />
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <EditableField
+                        label="Manufacturer"
+                        onChange={(value) => updateAmazonAttribute("manufacturer", value, (next) => [{ value: next, language_tag: "en_GB" }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "manufacturer")}
+                      />
+                      <div className="flex flex-col rounded-xl border border-[#dbe2ee] bg-[#f8fbff] p-3">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#8093b2]">Country of Origin</span>
+                        <p className="mb-1 text-[10px] leading-normal text-[#8ea0bf]">Fixed for this UK Amazon listing.</p>
+                        <div className="flex min-h-10 items-center rounded-lg border border-[#d4ddec] bg-slate-100 px-3 text-sm font-medium text-[#31415e]">GB — United Kingdom</div>
+                      </div>
+                      <EditableField
+                        label="Material"
+                        helperText="Example: Stainless Steel or Plastic."
+                        onChange={(value) => updateAmazonAttribute("material", value, (next) => [{ value: next, language_tag: "en_GB" }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "material")}
+                      />
+                      <EditableField
+                        label="Included Components"
+                        helperText="Example: Bottle and lid."
+                        onChange={(value) => updateAmazonAttribute("included_components", value, (next) => [{ value: next, language_tag: "en_GB" }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "included_components")}
+                      />
+                      <EditableField
+                        label="Model Name"
+                        onChange={(value) => updateAmazonAttribute("model_name", value, (next) => [{ value: next, language_tag: "en_GB" }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "model_name")}
+                      />
+                      <EditableField
+                        label="Model Number"
+                        onChange={(value) => updateAmazonAttribute("model_number", value)}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "model_number")}
+                      />
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="grid grid-cols-[1fr_150px] gap-3 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                        <label className="col-span-2 text-xs font-bold uppercase tracking-wider text-[#8093b2]">Capacity</label>
+                        <input
+                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                          inputMode="decimal"
+                          onChange={(event) => {
+                            const unit = amazonAttributeValue(draft.amazon.structured_attributes, "capacity", "unit") || "milliliters";
+                            updateAmazonAttribute("capacity", event.target.value, (next) => [{ value: Number(next), unit }]);
+                          }}
+                          placeholder="500"
+                          value={amazonAttributeValue(draft.amazon.structured_attributes, "capacity")}
+                        />
+                        <select
+                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                          onChange={(event) => {
+                            const value = amazonAttributeValue(draft.amazon.structured_attributes, "capacity");
+                            if (value) updateAmazonAttribute("capacity", value, (next) => [{ value: Number(next), unit: event.target.value }]);
+                          }}
+                          value={amazonAttributeValue(draft.amazon.structured_attributes, "capacity", "unit") || "milliliters"}
+                        >
+                          <option value="milliliters">Millilitres</option>
+                          <option value="liters">Litres</option>
+                          <option value="fluid_ounces">Fluid ounces</option>
+                        </select>
+                      </div>
+                      <EditableField
+                        helperText="Number of items in the package, usually 1."
+                        label="Unit Count"
+                        onChange={(value) => updateAmazonAttribute("unit_count", value, (next) => [{ value: Number(next), type: { value: "count", language_tag: "en_GB" } }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "unit_count")}
+                      />
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <EditableField
+                        helperText="Required by Amazon. Defaults to the Publish Targets price and is sent in GBP."
+                        label="Amazon List Price (GBP)"
+                        onChange={(value) => updateAmazonAttribute("list_price", value, (next) => [{ value_with_tax: Number(next), currency: "GBP" }])}
+                        value={amazonAttributeValue(draft.amazon.structured_attributes, "list_price", "value_with_tax") || publishPrice}
+                      />
+                      <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] px-4 py-3 text-xs leading-5 text-[#7184a3]">
+                        <p className="font-bold uppercase tracking-wider text-[#8093b2]">Barcode requirement</p>
+                        <p className="mt-1">Use a real GS1-issued EAN, UPC, or GTIN. Placeholder text and made-up numbers are rejected by Amazon.</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="grid grid-cols-[150px_1fr] gap-3 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                        <label className="col-span-2 text-xs font-bold uppercase tracking-wider text-[#8093b2]">External Product ID</label>
+                        <select
+                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                          onChange={(event) => {
+                            const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
+                            if (value) {
+                              const type = event.target.value;
+                              updateAmazonAttribute("externally_assigned_product_identifier", sanitizeAmazonProductIdentifier(type, value), (next) => [{ type, value: next }]);
+                            }
+                          }}
+                          value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean"}
+                        >
+                          <option value="ean">EAN</option>
+                          <option value="gtin">GTIN</option>
+                          <option value="upc">UPC</option>
+                        </select>
+                        <input
+                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                          inputMode="numeric"
+                          onChange={(event) => {
+                            const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
+                            const value = sanitizeAmazonProductIdentifier(type, event.target.value);
+                            updateAmazonAttribute("externally_assigned_product_identifier", value, (next) => [{ type, value: next }]);
+                          }}
+                          maxLength={amazonProductIdentifierMaxLength(amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean")}
+                          placeholder="Digits only"
+                          value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier")}
+                        />
+                        {(() => {
+                          const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
+                          const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
+                          if (!value) return <p className="col-span-2 text-[10px] text-[#8ea0bf]">Enter the real product barcode. EAN is usually 13 digits in the UK.</p>;
+                          return isValidAmazonProductIdentifier(type, value) ? (
+                            <p className="col-span-2 text-[10px] font-medium text-emerald-600">Valid {type.toUpperCase()} format and check digit.</p>
+                          ) : (
+                            <p className="col-span-2 text-[10px] font-medium text-rose-600">Enter Twinstr&apos;s real {type.toUpperCase()} with the correct number of digits and check digit. Sample barcode values are not accepted.</p>
+                          );
+                        })()}
+                      </div>
+                      <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                        <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Dangerous Goods Regulation</label>
+                        <select
+                          className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                          onChange={(event) => updateAmazonAttribute("supplier_declared_dg_hz_regulation", event.target.value)}
+                          value={amazonAttributeValue(draft.amazon.structured_attributes, "supplier_declared_dg_hz_regulation") || (/(water\s*bottle|^bottle$)/i.test(getAmazonProductType().trim()) ? "not_applicable" : "")}
+                        >
+                          <option value="">Select regulation</option>
+                          <option value="not_applicable">Not applicable</option>
+                          <option value="ghs">GHS</option>
+                          <option value="storage">Storage</option>
+                          <option value="transportation">Transportation</option>
+                          <option value="waste">Waste</option>
+                          <option value="other">Other</option>
+                          <option value="unknown">Unknown</option>
+                        </select>
+                      </div>
+                    </div>
                     <EditableListField
                       helperText="One search term per line"
                       label="Backend Search Terms"
@@ -6461,7 +6836,7 @@ export default function AddProductEditor({
                     />
                     <EditableAttributesField
                       attributes={draft.amazon.structured_attributes}
-                      label="Structured Attributes"
+                      label="Advanced Amazon Attributes"
                       onChange={(attributes) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, structured_attributes: attributes } }))}
                     />
                   </>
@@ -8945,13 +9320,30 @@ export default function AddProductEditor({
                   {/* Restore this eBay line when eBay goes live again. */}
                   {/* <li><strong>eBay</strong>: Uses the real eBay Sandbox publish flow through the backend job worker.</li> */}
                   <li><strong>eBay, Etsy</strong>: Coming Soon. Existing generated data is preserved for reuse.</li>
-                  <li><strong>Amazon, TikTok Shop</strong>: Simulated upload integration. Click to test output listings.</li>
+                  <li><strong>Amazon</strong>: Validates the listing, submits it through the configured SP-API environment, and saves Amazon&apos;s response in CommandCtr.</li>
+                  <li><strong>TikTok Shop</strong>: Simulated upload integration.</li>
                 </ul>
               </div>
               {selectedPublishShop === "shopify" && shopifyProductId ? (
                 <div className="mt-4 rounded-2xl border border-[#dbe2ee] bg-white px-4 py-3 text-xs leading-6 text-[#667a99]">
                   Current Shopify product ID:
                   <span className="ml-2 font-semibold text-[#31415e]">{shopifyProductId}</span>
+                </div>
+              ) : selectedPublishShop === "amazon" && backendProductId ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-[#f3d29b] bg-[#fffbf0] px-4 py-3 text-xs leading-6 text-[#7a4b00]">
+                    <span className="font-semibold">Amazon product submission:</span>
+                    <a
+                      href={`/products/${encodeURIComponent(backendProductId)}`}
+                      className="ml-2 break-all font-semibold underline underline-offset-2 hover:text-[#4f3100]"
+                    >
+                      View product in CommandCtr
+                    </a>
+                    <span className="ml-2">SKU: {publishSku.trim()}</span>
+                  </div>
+                  <p className="px-1 text-xs leading-5 text-[#8a6a32]">
+                    Amazon accepts listing submissions asynchronously. Review the saved issues and Seller Central status before treating the SKU as buyable.
+                  </p>
                 </div>
               ) : selectedPublishShop === "ebay" && backendProductId && !isComingSoonMarket(selectedPublishShop) ? (
                 <div className="mt-4 space-y-3">

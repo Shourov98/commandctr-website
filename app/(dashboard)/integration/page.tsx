@@ -7,6 +7,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { ApiClientError } from "@/lib/auth";
 import { integrationApi } from "@/lib/integrations";
 import {
+  initialAmazonState,
   initialEbayState,
   initialEtsyState,
   initialShopifyState,
@@ -81,13 +82,17 @@ export default function IntegrationPage() {
   const shopifyState = useIntegrationPageStore((state) => state.shopifyState);
   const ebayState = useIntegrationPageStore((state) => state.ebayState);
   const etsyState = useIntegrationPageStore((state) => state.etsyState);
+  const amazonState = useIntegrationPageStore((state) => state.amazonState);
   const isLoadingStatus = useIntegrationPageStore((state) => state.isLoadingStatus);
   const isConnectingShopify = useIntegrationPageStore((state) => state.isConnectingShopify);
   const isConnectingEbay = useIntegrationPageStore((state) => state.isConnectingEbay);
   const isConnectingEtsy = useIntegrationPageStore((state) => state.isConnectingEtsy);
+  const isConnectingAmazon = useIntegrationPageStore((state) => state.isConnectingAmazon);
   const isDisconnectingShopify = useIntegrationPageStore((state) => state.isDisconnectingShopify);
   const isDisconnectingEbay = useIntegrationPageStore((state) => state.isDisconnectingEbay);
   const isDisconnectingEtsy = useIntegrationPageStore((state) => state.isDisconnectingEtsy);
+  const isDisconnectingAmazon = useIntegrationPageStore((state) => state.isDisconnectingAmazon);
+  const isVerifyingAmazon = useIntegrationPageStore((state) => state.isVerifyingAmazon);
   const isSyncingProducts = useIntegrationPageStore((state) => state.isSyncingProducts);
   const isSyncingOrders = useIntegrationPageStore((state) => state.isSyncingOrders);
   const hasLoadedOnce = useIntegrationPageStore((state) => state.hasLoadedOnce);
@@ -99,9 +104,13 @@ export default function IntegrationPage() {
   const loadShopifyStatus = useIntegrationPageStore((state) => state.loadShopifyStatus);
   const loadEbayStatus = useIntegrationPageStore((state) => state.loadEbayStatus);
   const loadEtsyStatus = useIntegrationPageStore((state) => state.loadEtsyStatus);
+  const loadAmazonStatus = useIntegrationPageStore((state) => state.loadAmazonStatus);
+  const connectAmazon = useIntegrationPageStore((state) => state.connectAmazon);
   const disconnectShopify = useIntegrationPageStore((state) => state.disconnectShopify);
   const disconnectEbay = useIntegrationPageStore((state) => state.disconnectEbay);
   const disconnectEtsy = useIntegrationPageStore((state) => state.disconnectEtsy);
+  const disconnectAmazon = useIntegrationPageStore((state) => state.disconnectAmazon);
+  const verifyAmazon = useIntegrationPageStore((state) => state.verifyAmazon);
   const syncProducts = useIntegrationPageStore((state) => state.syncProducts);
   const syncOrders = useIntegrationPageStore((state) => state.syncOrders);
 
@@ -121,10 +130,14 @@ export default function IntegrationPage() {
       etsyState.connected === initialEtsyState.connected &&
       etsyState.displayName === initialEtsyState.displayName &&
       etsyState.status === initialEtsyState.status &&
-      etsyState.environment === initialEtsyState.environment;
+      etsyState.environment === initialEtsyState.environment &&
+      amazonState.connected === initialAmazonState.connected &&
+      amazonState.status === initialAmazonState.status &&
+      amazonState.environment === initialAmazonState.environment;
 
     if (!hasLoadedOnce || isInitialState) {
       void loadShopifyStatus();
+      void loadAmazonStatus();
       // Restore these status checks when eBay/Etsy are enabled again.
       // void loadEbayStatus();
       // void loadEtsyStatus();
@@ -133,11 +146,12 @@ export default function IntegrationPage() {
 
     if (shouldRefresh()) {
       void loadShopifyStatus();
+      void loadAmazonStatus();
       // Restore these refresh checks when eBay/Etsy are enabled again.
       // void loadEbayStatus();
       // void loadEtsyStatus();
     }
-  }, [ebayState, etsyState, hasLoadedOnce, loadEbayStatus, loadEtsyStatus, loadShopifyStatus, shopifyState, shouldRefresh]);
+  }, [amazonState, ebayState, etsyState, hasLoadedOnce, loadAmazonStatus, loadEbayStatus, loadEtsyStatus, loadShopifyStatus, shopifyState, shouldRefresh]);
 
   useEffect(() => {
     const marketplace = searchParams.get("marketplace");
@@ -259,12 +273,12 @@ export default function IntegrationPage() {
       {
         id: "amazon",
         title: "Amazon",
-        subtitle: "Seller Central",
-        description: "The world's largest marketplace. Amazon remains disabled for this MVP release.",
+        subtitle: `Seller Central · ${amazonState.environment === "production" ? "Production" : "Sandbox"}`,
+        description: `Connect and verify the Amazon UK SP-API ${amazonState.environment} seller account used for product listings.`,
         icon: <AmazonIcon className="h-6 w-6" />,
         themeBg: "bg-[#f8a100]",
-        badgeText: "COMING SOON",
-        interactive: false,
+        badgeText: amazonState.connected ? "CONNECTED" : null,
+        interactive: true,
       },
       {
         id: "tiktok",
@@ -311,15 +325,18 @@ export default function IntegrationPage() {
         interactive: true,
       },
     ],
-    [shopifyState.connected],
+    [amazonState.connected, amazonState.environment, shopifyState.connected],
   );
   const renderCollapsedFooter = (platformId: string) => {
     let statusClass = "status-dot-disconnected";
     let tooltip = "Not Connected";
 
-    if (platformId === "amazon" || platformId === "tiktok" || isComingSoonMarketplace(platformId)) {
+    if (platformId === "tiktok" || isComingSoonMarketplace(platformId)) {
       statusClass = "status-dot-coming-soon";
       tooltip = "Coming Soon";
+    } else if (platformId === "amazon" && amazonState.connected) {
+      statusClass = "status-dot-connected";
+      tooltip = `Connected to ${amazonState.environment}`;
     } else if (platformId === "ebay" && ebayState.connected) {
       statusClass = "status-dot-connected";
       tooltip = "Connected";
@@ -339,6 +356,54 @@ export default function IntegrationPage() {
   };
 
   const renderExpandedFooter = (platformId: string) => {
+    if (platformId === "amazon") {
+      if (!amazonState.connected) {
+        return (
+          <button
+            className="btn-premium btn-primary-teal w-full sm:w-auto"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void connectAmazon();
+            }}
+            disabled={isConnectingAmazon}
+          >
+            <ShoppingBag className="h-4 w-4" />
+            {isConnectingAmazon
+              ? "Connecting..."
+              : `Connect Amazon ${amazonState.environment === "production" ? "Production" : "Sandbox"}`}
+          </button>
+        );
+      }
+
+      return (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="btn-premium btn-primary-dark"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void verifyAmazon();
+            }}
+            disabled={isVerifyingAmazon}
+          >
+            {isVerifyingAmazon ? "Verifying..." : "Verify Connection"}
+          </button>
+          <button
+            className="btn-premium btn-secondary-outline text-red-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void disconnectAmazon();
+            }}
+            disabled={isDisconnectingAmazon}
+          >
+            {isDisconnectingAmazon ? "Disconnecting..." : "Disconnect"}
+          </button>
+        </div>
+      );
+    }
+
     if (isComingSoonMarketplace(platformId)) {
       return (
         <button
@@ -617,6 +682,16 @@ export default function IntegrationPage() {
                                   <span className="connected-store">
                                     Connected store: {shopifyState.shopDomain}
                                   </span>
+                                </div>
+                              ) : null}
+                              {platform.id === "amazon" && amazonState.connected ? (
+                                <div className="mt-3 space-y-2">
+                                  <span className="connected-store">
+                                    Connected: {amazonState.displayName}
+                                  </span>
+                                  <p className="text-xs text-slate-500">
+                                    UK marketplace · {amazonState.currency} · Sandbox data
+                                  </p>
                                 </div>
                               ) : null}
                             </div>

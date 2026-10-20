@@ -22,7 +22,7 @@ export type ProductRow = {
   shopifyVariantId?: string;
   inventoryItemId?: string;
   inventoryLocationId?: string;
-  source: "shopify" | "product_ai" | "twinstr" | "commandctr";
+  source: "shopify" | "amazon" | "product_ai" | "twinstr" | "commandctr";
   marketplace?: string;
   ebayStatus?: string;
   ebayListingId?: string;
@@ -198,7 +198,7 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       shopifyVariantId: primaryVariant?.shopifyVariantId,
       inventoryItemId,
       inventoryLocationId: inventoryItemId ? (inventoryLocationByItemId.get(inventoryItemId) ?? "") : "",
-      source: (product.marketplace ?? "shopify") === "shopify" ? "shopify" : "twinstr",
+      source: product.marketplace === "amazon" ? "amazon" : (product.marketplace ?? "shopify") === "shopify" ? "shopify" : "twinstr",
       marketplace: product.marketplace,
       ebayStatus: product.ebayStatus,
       ebayListingId: product.ebayListingId,
@@ -388,7 +388,10 @@ export const useProductsPageStore = create<ProductsPageState>()(
         set((state) => ({
           rowFeedbackById: {
             ...state.rowFeedbackById,
-            [row.id]: { tone: "saving", message: row.source === "shopify" ? "Deleting from Shopify..." : "Deleting product..." },
+            [row.id]: {
+              tone: "saving",
+              message: row.source === "shopify" ? "Deleting from Shopify..." : row.source === "amazon" ? "Deleting Amazon Sandbox product..." : "Deleting product...",
+            },
           },
         }));
 
@@ -407,7 +410,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
             products: state.products.filter((product) => product.id !== row.id),
             shopifyRowsCache: state.shopifyRowsCache.filter((product) => product.id !== row.id),
             rowFeedbackById: Object.fromEntries(Object.entries(state.rowFeedbackById).filter(([id]) => id !== row.id)),
-            pageMessage: row.source === "shopify" ? "Product deleted from Shopify and Twinstr." : "Product deleted.",
+            pageMessage: row.source === "shopify" ? "Product deleted from Shopify and Twinstr." : row.source === "amazon" ? "Amazon Sandbox product deleted from CommandCtr." : "Product deleted.",
           }));
         } catch (error) {
           set((state) => ({

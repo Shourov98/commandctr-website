@@ -3,7 +3,7 @@
 import { create } from "zustand";
 
 import { ApiClientError } from "@/lib/auth";
-import { integrationApi } from "@/lib/integrations";
+import { integrationApi, type AmazonStatus } from "@/lib/integrations";
 
 export type BannerState = {
   type: "success" | "error" | "info";
@@ -66,18 +66,35 @@ export const initialEtsyState: EtsyState = {
   accessTokenExpiresAt: null,
 };
 
+export const initialAmazonState: AmazonStatus = {
+  connected: false,
+  marketplace: "amazon",
+  environment: "sandbox",
+  displayName: "Amazon UK Sandbox",
+  providerAccountRef: "",
+  marketplaceId: "A1F83G8C2ARO7P",
+  currency: "GBP",
+  status: "not_connected",
+  connectedAt: null,
+  lastCheckedAt: null,
+};
+
 type IntegrationPageState = {
   banner: BannerState;
   shopifyState: ShopifyState;
   ebayState: EbayState;
   etsyState: EtsyState;
+  amazonState: AmazonStatus;
   isLoadingStatus: boolean;
   isConnectingShopify: boolean;
   isConnectingEbay: boolean;
   isConnectingEtsy: boolean;
+  isConnectingAmazon: boolean;
   isDisconnectingShopify: boolean;
   isDisconnectingEbay: boolean;
   isDisconnectingEtsy: boolean;
+  isDisconnectingAmazon: boolean;
+  isVerifyingAmazon: boolean;
   isSyncingProducts: boolean;
   isSyncingOrders: boolean;
   hasLoadedOnce: boolean;
@@ -90,9 +107,13 @@ type IntegrationPageState = {
   loadShopifyStatus: () => Promise<void>;
   loadEbayStatus: () => Promise<void>;
   loadEtsyStatus: () => Promise<void>;
+  loadAmazonStatus: () => Promise<void>;
+  connectAmazon: () => Promise<void>;
   disconnectShopify: () => Promise<void>;
   disconnectEbay: () => Promise<void>;
   disconnectEtsy: () => Promise<void>;
+  disconnectAmazon: () => Promise<void>;
+  verifyAmazon: () => Promise<void>;
   syncProducts: () => Promise<void>;
   syncOrders: () => Promise<void>;
 };
@@ -106,13 +127,17 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
   shopifyState: initialShopifyState,
   ebayState: initialEbayState,
   etsyState: initialEtsyState,
+  amazonState: initialAmazonState,
   isLoadingStatus: false,
   isConnectingShopify: false,
   isConnectingEbay: false,
   isConnectingEtsy: false,
+  isConnectingAmazon: false,
   isDisconnectingShopify: false,
   isDisconnectingEbay: false,
   isDisconnectingEtsy: false,
+  isDisconnectingAmazon: false,
+  isVerifyingAmazon: false,
   isSyncingProducts: false,
   isSyncingOrders: false,
   hasLoadedOnce: false,
@@ -229,6 +254,39 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
       });
     }
   },
+  async loadAmazonStatus() {
+    try {
+      const amazonState = await integrationApi.getAmazonStatus();
+      set({ amazonState, hasLoadedOnce: true, lastLoadedAt: Date.now() });
+    } catch (error) {
+      set({
+        banner: {
+          type: "error",
+          message: error instanceof ApiClientError ? error.message : "Failed to load Amazon status.",
+        },
+      });
+    }
+  },
+  async connectAmazon() {
+    set({ banner: null, isConnectingAmazon: true });
+    try {
+      const amazonState = await integrationApi.connectAmazon();
+      set({
+        amazonState,
+        banner: { type: "success", message: `Amazon UK ${amazonState.environment} connected successfully.` },
+        lastLoadedAt: Date.now(),
+      });
+    } catch (error) {
+      set({
+        banner: {
+          type: "error",
+          message: error instanceof ApiClientError ? error.message : "Failed to connect Amazon.",
+        },
+      });
+    } finally {
+      set({ isConnectingAmazon: false });
+    }
+  },
   async disconnectShopify() {
     set({ banner: null, isDisconnectingShopify: true });
     try {
@@ -319,6 +377,42 @@ export const useIntegrationPageStore = create<IntegrationPageState>()((set, get)
       });
     } finally {
       set({ isDisconnectingEtsy: false });
+    }
+  },
+  async disconnectAmazon() {
+    set({ banner: null, isDisconnectingAmazon: true });
+    try {
+      const amazonState = await integrationApi.disconnectAmazon();
+      set({ amazonState, banner: { type: "success", message: "Amazon disconnected successfully." } });
+    } catch (error) {
+      set({
+        banner: {
+          type: "error",
+          message: error instanceof ApiClientError ? error.message : "Failed to disconnect Amazon.",
+        },
+      });
+    } finally {
+      set({ isDisconnectingAmazon: false });
+    }
+  },
+  async verifyAmazon() {
+    set({ banner: null, isVerifyingAmazon: true });
+    try {
+      const amazonState = await integrationApi.verifyAmazon();
+      set({
+        amazonState,
+        banner: { type: "success", message: `Amazon ${amazonState.environment} connection verified successfully.` },
+        lastLoadedAt: Date.now(),
+      });
+    } catch (error) {
+      set({
+        banner: {
+          type: "error",
+          message: error instanceof ApiClientError ? error.message : "Amazon connection verification failed.",
+        },
+      });
+    } finally {
+      set({ isVerifyingAmazon: false });
     }
   },
   async syncProducts() {
