@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --font-heading:
+    "Space Grotesk", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --font-body:
+    "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, "Noto Sans",
+    sans-serif;
+  --font-geist-sans:
+    "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-geist-mono:
+    "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+}
+
+p {
+  font-family: var(--font-body);
+}
+
+@keyframes new-order-to-center-amazon {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(-250px, 175px) scale(0.72);
+  }
+}
+
+@keyframes new-order-to-center-tiktok {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(480px, -178px) scale(0.72);
+  }
+}
+
+@keyframes new-order-to-center-ebay {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(-248px, -172px) scale(0.72);
+  }
+}
+
+@keyframes new-order-to-center-shopify {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(250px, 175px) scale(0.72);
+  }
+}
+
+@keyframes new-order-to-center-etsy {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  62% {
+    opacity: 1;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -185px) scale(0.72);
+  }
+}
+
+.new-order-motion {
+  animation-duration: 4.2s;
+  animation-timing-function: cubic-bezier(0.22, 0.78, 0.25, 0.99);
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+  will-change: transform, opacity;
+}
+
+.new-order-motion-shopify {
+  animation-name: new-order-to-center-shopify;
+  animation-delay: 3.6s;
+}
+
+.new-order-motion-amazon {
+  animation-name: new-order-to-center-amazon;
+  animation-delay: 0s;
+}
+
+.new-order-motion-tiktok {
+  animation-name: new-order-to-center-tiktok;
+  animation-delay: 1.2s;
+}
+
+.new-order-motion-ebay {
+  animation-name: new-order-to-center-ebay;
+  animation-delay: 2.4s;
+}
+
+.new-order-motion-etsy {
+  animation-name: new-order-to-center-etsy;
+  animation-delay: 4.8s;
+}
+
+@keyframes glow-outside-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    filter: blur(104px);
+  }
+  50% {
+    opacity: 0.92;
+    filter: blur(138px);
+  }
+}
+
+@keyframes glowball-shadow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 220px 30px rgba(70, 246, 241, 0.42);
+  }
+  50% {
+    box-shadow: 0 0 340px 72px rgba(70, 246, 241, 0.9);
+  }
+}
+
+.glow-outside-pulse {
+  animation: glow-outside-pulse 6s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+
+.glowball-shadow-pulse {
+  animation: glowball-shadow-pulse 6s ease-in-out infinite;
+  will-change: box-shadow;
+}
+
+/* Premium Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 160, 191, 0.3); /* Subtle theme-matching slate-blue */
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 160, 191, 0.6);
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(142, 160, 191, 0.3) transparent;
+}
+
+/* Rich Preview box styling rules for HTML rendering */
+.rich-preview-box {
+  padding-bottom: 1rem !important;
+  &::after {
+    content: "";
+    display: block;
+    height: 1.25rem;
+    width: 100%;
+  }
+  p {
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+  }
+  p:last-child {
+    margin-bottom: 0;
+  }
+  ul {
+    list-style-type: disc;
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  ol {
+    list-style-type: decimal;
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  li {
+    margin-bottom: 0.25rem;
+  }
+  strong {
+    font-weight: 700;
+  }
+}
+
