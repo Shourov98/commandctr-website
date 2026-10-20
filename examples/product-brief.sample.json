@@ -1,0 +1,34 @@
+{
+  "productName": "AuroraFlow Vacuum Bottle",
+  "brand": "Northline Supply",
+  "category": "Drinkware > Insulated Bottles",
+  "targetAudience": "Commuters, gym users, and outdoor shoppers who want a premium bottle with clean design.",
+  "shortBrandStory": "Northline Supply builds durable everyday gear with a modern, understated look.",
+  "price": 39.99,
+  "currency": "USD",
+  "color": "Midnight blue",
+  "materials": ["18/8 stainless steel", "powder-coated exterior", "BPA-free lid"],
+  "features": [
+    "Double-wall vacuum insulation keeps drinks cold for up to 24 hours",
+    "Leak-resistant twist cap with carry loop",
+    "Fits most standard car cup holders",
+    "Sweat-free exterior with textured powder coating",
+    "Wide-mouth opening for ice cubes and easy cleaning"
+  ],
+  "technicalSpecs": {
+    "capacity": "32 oz",
+    "height": "10.4 in",
+    "diameter": "3.5 in",
+    "weight": "430 g"
+  },
+  "careNotes": [
+    "Hand wash recommended",
+    "Do not microwave",
+    "Do not freeze when full"
+  ],
+  "complianceNotes": [
+    "Avoid unsupported health or medical claims",
+    "Do not claim dishwasher safe unless clearly established"
+  ],
+  "marketplaces": ["amazon", "ebay", "etsy", "tiktok_shop", "shopify"]
+}
