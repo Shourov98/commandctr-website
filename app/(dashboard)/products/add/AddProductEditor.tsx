@@ -1160,15 +1160,18 @@ function sanitizeAmazonProductIdentifier(type: string, value: string) {
   return value.replace(/\D/g, "").slice(0, amazonProductIdentifierMaxLength(type));
 }
 
-function validateAmazonRequiredAttributes(attributes: Record<string, string>) {
+function validateAmazonRequiredAttributes(attributes: Record<string, string>, identifierMode = "gtin", exemptionConfirmed = false) {
   const errors: string[] = [];
   const identifier = parseAmazonAttribute(attributes, "externally_assigned_product_identifier");
   const identifierType = String(identifier.type ?? "ean").toLowerCase();
   const identifierValue = String(identifier.value ?? "").trim();
-  if (!identifierValue) {
+  if (identifierMode === "gtin" && !identifierValue) {
     errors.push("External Product ID is required");
-  } else if (!isValidAmazonProductIdentifier(identifierType, identifierValue)) {
+  } else if (identifierMode === "gtin" && !isValidAmazonProductIdentifier(identifierType, identifierValue)) {
     errors.push(`Enter a valid ${identifierType.toUpperCase()} with a correct check digit`);
+  }
+  if (identifierMode === "no_identifier" && !exemptionConfirmed) {
+    errors.push("Confirm the approved Amazon GTIN exemption for this brand and category");
   }
   if (!amazonAttributeValue(attributes, "supplier_declared_dg_hz_regulation")) {
     errors.push("Dangerous Goods Regulation is required");
@@ -1187,6 +1190,109 @@ function withAmazonUkDefaults(attributes: Record<string, string>, productType: s
     next = setAmazonAttribute(next, "supplier_declared_dg_hz_regulation", "not_applicable");
   }
   return next;
+}
+
+function sourceAttribute(attributes: Record<string, string>, ...keys: string[]) {
+  const normalisedKeys = keys.map((key) => key.toLowerCase().replace(/[\s_-]+/g, ""));
+  const match = Object.entries(attributes).find(([key, value]) => (
+    normalisedKeys.includes(key.toLowerCase().replace(/[\s_-]+/g, "")) && value.trim()
+  ));
+  return match?.[1]?.trim() ?? "";
+}
+
+const amazonGeneratedBrand = "Twinstr";
+const amazonGeneratedManufacturer = "Twinstr Ltd";
+
+function amazonGeneratedModelNumber(product: ApiProduct) {
+  const source = product.core.normalized_title || product.core.product_type || "product";
+  const token = source
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 28);
+  return `TWINSTR-${token || "PRODUCT"}`;
+}
+
+/**
+ * Convert grounded AI/core attributes to the SP-API shapes used by the Amazon
+ * form. Existing values always win: Generate AI completes blanks, it does not
+ * replace seller-entered catalogue facts.
+ *
+ * A barcode and a dangerous-goods declaration are deliberately excluded. They
+ * are compliance facts that cannot be safely inferred from text or an image.
+ */
+function completeAmazonBlankFields(
+  product: ApiProduct,
+  existingAttributes: Record<string, string>,
+  publishPrice: string,
+) {
+  let attributes = { ...product.amazon.structured_attributes };
+  const core = product.core.attributes;
+  const putIfBlank = (
+    key: string,
+    value: string,
+    build?: (value: string) => unknown,
+  ) => {
+    if (!amazonAttributeValue(existingAttributes, key) && !amazonAttributeValue(attributes, key) && value.trim()) {
+      attributes = setAmazonAttribute(attributes, key, value, build);
+    }
+  };
+
+  putIfBlank(
+    "manufacturer",
+    sourceAttribute(core, "manufacturer", "brand", "brand_name") || amazonGeneratedManufacturer,
+    (value) => [{ value, language_tag: "en_GB" }],
+  );
+  putIfBlank(
+    "material",
+    sourceAttribute(core, "material", "fabric", "composition")
+      || (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) ? "Stainless Steel" : ""),
+    (value) => [{ value, language_tag: "en_GB" }],
+  );
+  putIfBlank(
+    "included_components",
+    sourceAttribute(core, "included_components", "package_contents", "in_the_box")
+      || (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) ? "Water Bottle and Lid" : product.core.product_type),
+    (value) => [{ value, language_tag: "en_GB" }],
+  );
+  putIfBlank(
+    "model_name",
+    sourceAttribute(core, "model_name", "model") || product.core.normalized_title,
+    (value) => [{ value, language_tag: "en_GB" }],
+  );
+  putIfBlank("model_number", sourceAttribute(core, "model_number", "model_no", "mpn") || amazonGeneratedModelNumber(product));
+
+  const capacity = sourceAttribute(core, "capacity", "volume", "size");
+  const capacityMatch = capacity.match(/(\d+(?:\.\d+)?)\s*(ml|millilit(?:re|er)s?|l|lit(?:re|er)s?|fl\.?\s*oz)/i);
+  if (capacityMatch && !amazonAttributeValue(existingAttributes, "capacity") && !amazonAttributeValue(attributes, "capacity")) {
+    const unit = /^(ml|millilit)/i.test(capacityMatch[2])
+      ? "milliliters"
+      : /^l|lit/i.test(capacityMatch[2])
+        ? "liters"
+        : "fluid_ounces";
+    attributes = setAmazonAttribute(attributes, "capacity", capacityMatch[1], (value) => [{ value: Number(value), unit }]);
+  }
+  if (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) && !amazonAttributeValue(existingAttributes, "capacity") && !amazonAttributeValue(attributes, "capacity")) {
+    attributes = setAmazonAttribute(attributes, "capacity", "500", (value) => [{ value: Number(value), unit: "milliliters" }]);
+  }
+
+  putIfBlank("unit_count", sourceAttribute(core, "unit_count", "item_package_quantity", "pack_count") || "1", (value) => [
+    { value: Number(value), type: { value: "count", language_tag: "en_GB" } },
+  ]);
+  const price = sourceAttribute(core, "list_price", "price") || publishPrice;
+  if (Number(price) > 0) {
+    putIfBlank("list_price", price, (value) => [{ value_with_tax: Number(value), currency: "GBP" }]);
+  }
+
+  // UK marketplace setting, not an AI claim. This is intentionally fixed.
+  attributes = withAmazonUkDefaults(attributes, product.core.product_type);
+  return {
+    ...product,
+    amazon: {
+      ...product.amazon,
+      structured_attributes: { ...attributes, ...existingAttributes },
+    },
+  };
 }
 
 const emptyProduct: ApiProduct = {
@@ -1454,12 +1560,16 @@ function imageUrlFor(pathValue: string) {
   return `/api/product-ai/image?path=${encodeURIComponent(pathValue)}`;
 }
 
-async function fetchSourceImageAsFile(pathValue: string, fallbackName = "source.png"): Promise<File | null> {
+async function fetchSourceImageAsFile(
+  pathValue: string,
+  fallbackName = "source.png",
+  signal?: AbortSignal,
+): Promise<File | null> {
   if (!pathValue) return null;
   const url = imageUrlFor(pathValue);
   if (!url) return null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, { cache: "no-store", signal });
     if (!response.ok) return null;
     const blob = await response.blob();
     const mime = blob.type || "image/png";
@@ -2700,6 +2810,7 @@ export default function AddProductEditor({
   const router = useRouter();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const productImageUploadInputRef = useRef<HTMLInputElement>(null);
+  const generationAbortControllerRef = useRef<AbortController | null>(null);
   const lastSavedDraftRef = useRef<string | null>(null);
   const hydratedEbayBackendProductIdRef = useRef<string | null>(null);
   const pricingAutoAttemptKeyRef = useRef<string | null>(null);
@@ -2714,6 +2825,7 @@ export default function AddProductEditor({
   const [sourceTitle, setSourceTitle] = useState(emptyProduct.core.source_title);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationKind, setGenerationKind] = useState<"global" | "text" | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
@@ -2731,6 +2843,9 @@ export default function AddProductEditor({
   const [publishStock, setPublishStock] = useState("0");
   const [publishOnOnlineStore, setPublishOnOnlineStore] = useState(true);
   const [publishTrackInventory, setPublishTrackInventory] = useState(true);
+  const [amazonIdentifierMode, setAmazonIdentifierMode] = useState<"gtin" | "asin" | "no_identifier">("gtin");
+  const [amazonExistingAsin, setAmazonExistingAsin] = useState("");
+  const [amazonExemptionConfirmed, setAmazonExemptionConfirmed] = useState(false);
   useEffect(() => {
     setDraft((prev) => withMissingEbayDraftDefaults(prev, publishVendor));
   }, [
@@ -3913,7 +4028,7 @@ export default function AddProductEditor({
     };
   }
 
-  function applyRecord(record: ApiRecord, message: string) {
+  function applyRecord(record: ApiRecord, message: string, preserveAmazonFields = false) {
     setProductId(record.id);
     const mergedImages = { ...record.product.images };
     const keys: ImageCardKey[] = ["source", "transparent_cutout", "amazon", "ebay", "etsy", "tiktok", "shopify"];
@@ -3940,10 +4055,13 @@ export default function AddProductEditor({
         stock_locations: ensuredStockLocations,
       },
     };
-    setDraft(mergedProduct);
+    setDraft((current) => preserveAmazonFields
+      ? completeAmazonBlankFields(mergedProduct, current.amazon.structured_attributes, publishPrice)
+      : mergedProduct,
+    );
     setVariantsByMarket(record.variants);
     setSourceTitle(record.product.core.source_title);
-    setPublishVendor((current) => current || record.product.core.attributes.brand || "");
+    setPublishVendor((current) => current || record.product.core.attributes.brand || amazonGeneratedBrand);
     setPublishPrice((current) => current || record.product.core.attributes.price || "");
     setPublishDescription((current) => current || record.product.shopify.body_html || record.product.core.product_summary || "");
     setPublishSku((current) => current || record.id.slice(0, 12).toUpperCase());
@@ -4205,6 +4323,11 @@ export default function AddProductEditor({
     if (productImageUploadInputRef.current) {
       productImageUploadInputRef.current.value = "";
     }
+  }
+
+  function stopGeneration() {
+    generationAbortControllerRef.current?.abort();
+    setStatusMessage("Generation stopped. The existing product draft has been kept.");
   }
 
   function getPublishTitle() {
@@ -4759,7 +4882,7 @@ export default function AddProductEditor({
     if (!sku) missingFields.push("SKU");
     if (!normalizedPrice) missingFields.push("Default price");
     const amazonAttributes = withAmazonUkDefaults(draft.amazon.structured_attributes, getAmazonProductType());
-    missingFields.push(...validateAmazonRequiredAttributes(amazonAttributes));
+    missingFields.push(...validateAmazonRequiredAttributes(amazonAttributes, amazonIdentifierMode, amazonExemptionConfirmed));
     setPublishFieldErrors({ title: !title, price: !normalizedPrice });
     if (missingFields.length) {
       const message = `Required before Amazon upload: ${missingFields.join(", ")}.`;
@@ -4784,6 +4907,12 @@ export default function AddProductEditor({
         bulletPoints: draft.amazon.bullet_points.filter((value) => value.trim()),
         backendSearchTerms: draft.amazon.backend_search_terms.filter((value) => value.trim()),
         attributes: amazonAttributes,
+        identifierMode: amazonIdentifierMode,
+        existingAsin: amazonIdentifierMode === "asin" ? amazonExistingAsin.trim() || undefined : undefined,
+        exemptionConfirmed: amazonIdentifierMode === "no_identifier" ? amazonExemptionConfirmed : false,
+        exemptionBrand: amazonIdentifierMode === "no_identifier" ? (getPublishVendor() || "Generic") : undefined,
+        exemptionCategory: amazonIdentifierMode === "no_identifier" ? getAmazonProductType() : undefined,
+        confirmProductionSubmission: mode === "active",
       });
       const savedProductId = result._id ?? result.id ?? null;
       if (savedProductId) {
@@ -5093,26 +5222,37 @@ export default function AddProductEditor({
       return true;
     }
 
-    const finalImage = forcedImage || selectedImage;
-    if (!finalImage) {
-      setStatusMessage("Upload a product image before generating.");
-      return false;
-    }
-
     if (!sourceTitle.trim()) {
       setStatusMessage("Add a source title before generating.");
       return false;
     }
 
-    const formData = new FormData();
-    formData.append("title", sourceTitle.trim());
-    formData.append("image", finalImage);
-
+    const controller = new AbortController();
+    generationAbortControllerRef.current = controller;
+    let finalImage: File | null = forcedImage || selectedImage;
+    setGenerationKind("global");
     setIsGenerating(true);
     try {
+      // After the first generation the picker is intentionally cleared, but
+      // the original source image remains in the saved draft. Reuse it so the
+      // global Generate AI button can be used repeatedly without re-uploading.
+      const sourcePath = draft.images.source?.absolute_path || draft.images.source?.relative_path || "";
+      finalImage = finalImage || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal);
+      if (controller.signal.aborted) {
+        return false;
+      }
+      if (!finalImage) {
+        setStatusMessage("Upload a product image before generating. The saved source image could not be reloaded.");
+        return false;
+      }
+
+      const formData = new FormData();
+      formData.append("title", sourceTitle.trim());
+      formData.append("image", finalImage);
       const response = await fetch("/api/product-ai/products/generate/text", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -5121,19 +5261,27 @@ export default function AddProductEditor({
       }
 
       const record = (await response.json()) as ApiRecord;
+      const completedRecord: ApiRecord = {
+        ...record,
+        product: completeAmazonBlankFields(record.product, draft.amazon.structured_attributes, publishPrice),
+      };
       const generatedProductId = record.id;
       setShopifyProductId(null);
       clearPricingSnapshot();
-      applyRecord(record, "AI text draft generated. Marketplace sections are now generating in parallel.");
+      applyRecord(completedRecord, "AI text draft generated. Amazon blank fields were completed where grounded data is available; review compliance fields before upload.");
       if (!isImportMode) {
         router.replace(`/products/add?market=${activeMarket}&productId=${generatedProductId}`, { scroll: false });
       }
       clearSelectedImageSelection();
       // Restore eBay/Etsy generation when those channels go live again:
       // await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "ebay", "etsy", "tiktok", "shopify"], successMessage);
-      await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "tiktok", "shopify"], successMessage);
+      await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "tiktok", "shopify"], successMessage, controller.signal);
       return true;
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        setStatusMessage("Generation stopped. The existing product draft has been kept.");
+        return false;
+      }
       const message = error instanceof Error ? error.message : "Product generation failed.";
 
       if (!productId && finalImage && isGenerationTimeoutMessage(message)) {
@@ -5177,6 +5325,10 @@ export default function AddProductEditor({
       setStatusMessage(message);
       return false;
     } finally {
+      if (generationAbortControllerRef.current === controller) {
+        generationAbortControllerRef.current = null;
+      }
+      setGenerationKind((current) => current === "global" ? null : current);
       setIsGenerating(false);
     }
   }
@@ -5245,20 +5397,31 @@ export default function AddProductEditor({
       return;
     }
 
-    if (!selectedImage) {
-      setStatusMessage("Upload a product image before generating text-only content.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("title", sourceTitle.trim());
-    formData.append("image", selectedImage);
-
+    const controller = new AbortController();
+    generationAbortControllerRef.current = controller;
+    setGenerationKind("text");
     setIsGenerating(true);
     try {
+      // The file picker is cleared after generation. Use the stored source
+      // image so Text Only can be used repeatedly on the same product.
+      const sourcePath = draft.images.source?.absolute_path || draft.images.source?.relative_path || "";
+      const sourceImageFile = selectedImage
+        || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal);
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (!sourceImageFile) {
+        setStatusMessage("Upload a product image before generating text-only content. The saved source image could not be reloaded.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("title", sourceTitle.trim());
+      formData.append("image", sourceImageFile);
       const response = await fetch("/api/product-ai/products/generate/text", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -5267,16 +5430,28 @@ export default function AddProductEditor({
       }
 
       const record = (await response.json()) as ApiRecord;
+      const completedRecord: ApiRecord = {
+        ...record,
+        product: completeAmazonBlankFields(record.product, draft.amazon.structured_attributes, publishPrice),
+      };
       setShopifyProductId(null);
       clearPricingSnapshot();
-      applyRecord(record, "AI text draft generated and ready for marketplace images.");
+      applyRecord(completedRecord, "AI text draft generated. Existing fields were kept and eligible Amazon blank fields were completed.", true);
       clearSelectedImageSelection();
       if (!isImportMode) {
         router.replace(`/products/add?market=${activeMarket}&productId=${record.id}&source=product_ai`, { scroll: false });
       }
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        setStatusMessage("Generation stopped. The existing product draft has been kept.");
+        return;
+      }
       setStatusMessage(error instanceof Error ? error.message : "Text-only generation failed.");
     } finally {
+      if (generationAbortControllerRef.current === controller) {
+        generationAbortControllerRef.current = null;
+      }
+      setGenerationKind((current) => current === "text" ? null : current);
       setIsGenerating(false);
     }
   }
@@ -5332,6 +5507,7 @@ export default function AddProductEditor({
     requestedProductId: string,
     markets: MarketKey[],
     successMessage = "All marketplace content and image generations complete.",
+    signal?: AbortSignal,
   ) {
     const uniqueMarkets = Array.from(new Set(markets));
     if (uniqueMarkets.length === 0) {
@@ -5351,6 +5527,7 @@ export default function AddProductEditor({
       uniqueMarkets.map(async (market) => {
         const response = await fetch(`/api/product-ai/products/${requestedProductId}/marketplaces/${market}/generate`, {
           method: "POST",
+          signal,
         });
 
         if (!response.ok) {
@@ -5359,7 +5536,16 @@ export default function AddProductEditor({
         }
 
         const record = (await response.json()) as ApiRecord;
-        applyRecord(record, `${marketLabels[market]} content and image generated.`);
+        const completedRecord: ApiRecord = market === "amazon"
+          ? {
+              ...record,
+              product: completeAmazonBlankFields(record.product, draft.amazon.structured_attributes, publishPrice),
+            }
+          : record;
+        // Each endpoint returns a full product record. While those requests run
+        // in parallel, a later non-Amazon response must not erase Amazon fields
+        // already generated by the Amazon response.
+        applyRecord(completedRecord, `${marketLabels[market]} content and image generated.`, true);
         return market;
       }),
     );
@@ -5371,6 +5557,11 @@ export default function AddProductEditor({
       }
       return next;
     });
+
+    if (signal?.aborted) {
+      setStatusMessage("Generation stopped. The existing product draft has been kept.");
+      return false;
+    }
 
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length > 0) {
@@ -6493,13 +6684,23 @@ export default function AddProductEditor({
 
                 {/* Primary AI Button */}
                 <button
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#172544] to-[#263c70] px-3.5 text-xs font-bold text-white shadow-xs transition hover:opacity-90 active:scale-98 disabled:opacity-60 cursor-pointer"
-                  disabled={isGenerating}
-                  onClick={() => void generateProduct()}
+                  className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer ${
+                    generationKind === "global"
+                      ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      : "bg-gradient-to-r from-[#172544] to-[#263c70] text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  }`}
+                  disabled={isGenerating && generationKind !== "global"}
+                  onClick={() => {
+                    if (generationKind === "global") {
+                      stopGeneration();
+                      return;
+                    }
+                    void generateProduct();
+                  }}
                   type="button"
                 >
-                  {isGenerating ? <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#35d3ce]" /> : <Sparkles className="h-3.5 w-3.5 text-[#35d3ce]" />}
-                  {isGenerating ? "Generating..." : isImportMode ? "Generate Text" : "Generate AI"}
+                  {generationKind === "global" ? <X className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5 text-[#35d3ce]" />}
+                  {generationKind === "global" ? "Stop" : isImportMode ? "Generate Text" : "Generate AI"}
                 </button>
               </div>
             </div>
@@ -6523,16 +6724,26 @@ export default function AddProductEditor({
 
                 <button
                   type="button"
-                  disabled={isGenerating || !sourceTitle.trim()}
-                  onClick={() => void generateTextOnly()}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#172544] to-[#263c70] px-3.5 text-xs font-bold text-white shadow-xs hover:opacity-90 active:scale-98 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                  disabled={(isGenerating && generationKind !== "text") || !sourceTitle.trim()}
+                  onClick={() => {
+                    if (generationKind === "text") {
+                      stopGeneration();
+                      return;
+                    }
+                    void generateTextOnly();
+                  }}
+                  className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3.5 text-xs font-bold shadow-xs active:scale-98 transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                    generationKind === "text"
+                      ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      : "bg-gradient-to-r from-[#172544] to-[#263c70] text-white hover:opacity-90"
+                  }`}
                 >
-                  {isGenerating ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#35d3ce]" />
+                  {generationKind === "text" ? (
+                    <X className="h-3.5 w-3.5" />
                   ) : (
                     <Sparkles className="h-3.5 w-3.5 text-[#35d3ce]" />
                   )}
-                  {isGenerating ? "Generating..." : "Generate Text Only"}
+                  {generationKind === "text" ? "Stop" : "Generate Text Only"}
                 </button>
               </div>
 
@@ -6656,6 +6867,9 @@ export default function AddProductEditor({
                       <p>
                         These fields are mapped to Amazon SP-API attributes for the selected product type. Required fields can vary by category; Validation Preview will report any additional category-specific requirements without publishing the listing.
                       </p>
+                      <p className="mt-1">
+                        Generate AI fills blank Amazon fields using the Twinstr product profile and keeps values you entered. Review these suggestions against the actual product. A real GTIN/EAN must still be supplied before upload.
+                      </p>
                     </div>
                     <div className="grid gap-3 lg:grid-cols-2">
                       <EditableField
@@ -6769,9 +6983,19 @@ export default function AddProductEditor({
                       </div>
                     </div>
                     <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="lg:col-span-2 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                        <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Amazon product identifier</label>
+                        <select className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]" value={amazonIdentifierMode} onChange={(event) => setAmazonIdentifierMode(event.target.value as "gtin" | "asin" | "no_identifier")}>
+                          <option value="gtin">Product has an EAN, UPC, or GTIN</option>
+                          <option value="asin">Product matches an existing Amazon ASIN</option>
+                          <option value="no_identifier">Product has no barcode / product identifier</option>
+                        </select>
+                        {amazonIdentifierMode === "asin" ? <input className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm" placeholder="Existing 10-character Amazon ASIN" value={amazonExistingAsin} onChange={(event) => setAmazonExistingAsin(event.target.value.toUpperCase().slice(0, 10))} /> : null}
+                        {amazonIdentifierMode === "no_identifier" ? <div className="mt-3 space-y-2 text-xs text-[#7184a3]"><p>For an unbranded/Generic product, Amazon may require a GTIN exemption approved in Seller Central. CommandCtr cannot approve or bypass it.</p><label className="flex items-start gap-2 text-[#33435f]"><input type="checkbox" checked={amazonExemptionConfirmed} onChange={(event) => setAmazonExemptionConfirmed(event.target.checked)} /> I confirm the GTIN exemption is approved for this Amazon UK brand and category.</label><p>Seller Central → Catalogue → Add Products → Create a new listing → select category → No product identifier → apply for exemption if prompted.</p></div> : null}
+                      </div>
                       <div className="grid grid-cols-[150px_1fr] gap-3 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
                         <label className="col-span-2 text-xs font-bold uppercase tracking-wider text-[#8093b2]">External Product ID</label>
-                        <select
+                        <select disabled={amazonIdentifierMode !== "gtin"}
                           className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
                           onChange={(event) => {
                             const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
@@ -6786,7 +7010,7 @@ export default function AddProductEditor({
                           <option value="gtin">GTIN</option>
                           <option value="upc">UPC</option>
                         </select>
-                        <input
+                        <input disabled={amazonIdentifierMode !== "gtin"}
                           className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
                           inputMode="numeric"
                           onChange={(event) => {

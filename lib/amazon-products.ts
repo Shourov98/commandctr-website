@@ -13,6 +13,12 @@ export type AmazonListingPayload = {
   bulletPoints?: string[];
   backendSearchTerms?: string[];
   attributes?: Record<string, unknown>;
+  identifierMode?: "gtin" | "asin" | "no_identifier";
+  existingAsin?: string;
+  exemptionConfirmed?: boolean;
+  exemptionBrand?: string;
+  exemptionCategory?: string;
+  confirmProductionSubmission?: boolean;
 };
 
 export type AmazonProduct = ProductListItem & {
