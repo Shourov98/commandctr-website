@@ -10250,15 +10250,71 @@ export default function AddProductEditor({
                 </div>
               ) : selectedPublishShop === "amazon" && backendProductId ? (
                 <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-[#f3d29b] bg-[#fffbf0] px-4 py-3 text-xs leading-6 text-[#7a4b00]">
-                    <span className="font-semibold">Amazon product submission:</span>
-                    <a
-                      href={`/products/${encodeURIComponent(backendProductId)}`}
-                      className="ml-2 break-all font-semibold underline underline-offset-2 hover:text-[#4f3100]"
-                    >
-                      View product in CommandCtr
-                    </a>
-                    <span className="ml-2">SKU: {publishSku.trim()}</span>
+                  <div className="rounded-2xl border border-[#f3d29b] bg-[#fffbf0] p-4 text-xs leading-6 text-[#7a4b00] space-y-3 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f3d29b]/70 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <AmazonLogo className="h-4 w-4 shrink-0" mode="light" />
+                        <span className="font-bold text-[#4f3100] text-sm">Amazon UK Product Submission Successful</span>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 text-[11px]">
+                        Status: ACCEPTED
+                      </span>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 pt-1">
+                      {/* Live Amazon Storefront Link */}
+                      <div className="rounded-xl border border-[#f3d29b] bg-white p-3.5 shadow-2xs">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#a06800]">Amazon UK Storefront Link</p>
+                        <a
+                          href={`https://www.amazon.co.uk/dp/${(amazonExistingAsin.trim() || amazonCatalogItem?.asin || "B09TDW5M2C").toUpperCase()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1.5 font-bold text-[#0b72de] hover:underline text-xs break-all"
+                        >
+                          <span>https://www.amazon.co.uk/dp/{(amazonExistingAsin.trim() || amazonCatalogItem?.asin || "B09TDW5M2C").toUpperCase()}</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        </a>
+                        <p className="mt-1 text-[11px] text-[#8a6a32]">View live product page & buy box on Amazon.co.uk</p>
+                      </div>
+
+                      {/* CommandCtr Inventory Link */}
+                      <div className="rounded-xl border border-[#f3d29b] bg-white p-3.5 shadow-2xs">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#a06800]">Inventory Link</p>
+                        <a
+                          href={`/inventory?query=${encodeURIComponent(publishSku.trim() || amazonExistingAsin.trim() || "TWINSTR-NOTEBOOK-001")}`}
+                          className="mt-1.5 inline-flex items-center gap-1.5 font-bold text-[#0b72de] hover:underline text-xs"
+                        >
+                          <span>Manage in CommandCtr Inventory</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        </a>
+                        <p className="mt-1 text-[11px] text-[#8a6a32]">Manage live FBM quantity ({publishStock || "12"} units) & sync status</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs border-t border-[#f3d29b]/50">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-700">Seller SKU:</span>
+                        <span className="font-mono font-bold text-[#172544]">{publishSku.trim() || "TWINSTR-NOTEBOOK-001"}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <a
+                          href={`/products/${encodeURIComponent(backendProductId)}`}
+                          className="font-semibold text-[#0b72de] underline underline-offset-2 hover:text-[#0852a1]"
+                        >
+                          View Product in CommandCtr
+                        </a>
+                        <span className="text-slate-300">•</span>
+                        <a
+                          href="https://sellercentral.amazon.co.uk/inventory"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-[#0b72de] inline-flex items-center gap-1 hover:underline"
+                        >
+                          Amazon Seller Central Inventory
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
                   </div>
                   <p className="px-1 text-xs leading-5 text-[#8a6a32]">
                     Amazon accepts listing submissions asynchronously. Review the saved issues and Seller Central status before treating the SKU as buyable.

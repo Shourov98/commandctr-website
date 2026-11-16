@@ -178,14 +178,22 @@ export default function ProductsPage() {
       return (
         product.title.toLowerCase().includes(query) ||
         product.sku.toLowerCase().includes(query) ||
-        product.shopifyProductId.toLowerCase().includes(query)
+        product.shopifyProductId.toLowerCase().includes(query) ||
+        (product.amazonSku?.toLowerCase().includes(query) ?? false) ||
+        (product.amazonAsin?.toLowerCase().includes(query) ?? false)
       );
     });
   }, [products, searchQuery]);
 
   const metrics = useMemo(() => {
-    const lowStockCount = products.filter((product) => product.source === "shopify" && product.stock <= 10).length;
-    const activeListings = products.filter((product) => product.source === "shopify" && product.status.toUpperCase() === "ACTIVE").length;
+    const lowStockCount = products.filter((product) => (product.source === "shopify" || product.source === "amazon") && product.stock <= 10).length;
+    const activeListings = products.filter((product) => {
+      const shopifyActive = product.source === "shopify" && product.status.toUpperCase() === "ACTIVE";
+      const amazonActive =
+        product.source === "amazon" &&
+        ["ACCEPTED", "ACTIVE", "LIVE"].includes((product.amazonStatus ?? product.status ?? "").toUpperCase());
+      return shopifyActive || amazonActive;
+    }).length;
     // Restore this metric when eBay listings go live again:
     // const activeEbayListings = products.filter((product) => (product.ebayStatus ?? "").toLowerCase() === "active").length;
     const activeEbayListings = 0;
@@ -241,9 +249,11 @@ export default function ProductsPage() {
               <div className="rounded-xl border border-[#f3d4d4] bg-[#fff7f7] px-4 py-3 text-sm leading-6 text-[#9a3d3d]">
                 {productToDelete.source === "shopify"
                   ? "This will delete the product from Shopify and remove the synced Twinstr product and inventory records."
-                  : productToDelete.source === "product_ai"
-                    ? "This will delete the Product AI draft record from the AI product library."
-                    : "This will delete the Twinstr product record."}
+                  : productToDelete.source === "amazon"
+                    ? "This will remove the Amazon product record from CommandCtr."
+                    : productToDelete.source === "product_ai"
+                      ? "This will delete the Product AI draft record from the AI product library."
+                      : "This will delete the CommandCtr product record."}
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 border-t border-[#e7edf7] px-5 py-4">
@@ -281,7 +291,7 @@ export default function ProductsPage() {
             <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#d2fae7]">
               <CheckCircle2 className="h-5 w-5 text-[#29c5b8]" />
             </div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-[#f2f6ff]">Active Shopify Listings</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-[#f2f6ff]">Active Listings</p>
             <p className="mt-1 text-3xl font-semibold leading-none">{metrics.activeListings}</p>
             <p className="mt-2 text-xs text-[#b7c6e4]">eBay: Coming Soon</p>
           </article>
@@ -446,7 +456,11 @@ export default function ProductsPage() {
                             {product.vendor || "No vendor"}{product.productType ? ` • ${product.productType}` : ""}
                           </p>
                           <p className="mt-1 text-xs text-[#9aa5bc]">
-                            {product.source === "shopify" ? `Shopify: ${product.shopifyProductId}` : `Product AI: ${product.id}`}
+                            {product.source === "shopify"
+                              ? `Shopify: ${product.shopifyProductId}`
+                              : product.source === "amazon"
+                                ? `Amazon ASIN: ${product.amazonAsin ?? "--"} • SKU: ${product.amazonSku ?? product.sku}`
+                                : `Product AI: ${product.id}`}
                           </p>
                         </td>
                         <td className="px-4 py-4">
@@ -461,46 +475,52 @@ export default function ProductsPage() {
                               />
                           ) : (
                             <div className="mx-auto flex h-8 w-[84px] items-center justify-center rounded-lg px-2 text-center text-sm text-[#3f4d65]">
-                              {product.source === "shopify" ? toStockDisplay(product.stock) : "--"}
+                              {product.source === "shopify" || product.source === "amazon" ? toStockDisplay(product.stock) : "--"}
                             </div>
                           )}
-                          <p className={`mt-1 text-center text-xs ${product.source === "shopify" ? stockTone.className : "text-[#9aa5bc]"}`}>
-                            {product.source === "shopify" ? stockTone.label : "Not synced"}
+                          <p className={`mt-1 text-center text-xs ${product.source === "shopify" || product.source === "amazon" ? stockTone.className : "text-[#9aa5bc]"}`}>
+                            {product.source === "shopify" || product.source === "amazon" ? stockTone.label : "Not synced"}
                           </p>
                         </td>
                         <td className="border-l border-[#cce7d7] px-4 py-4 text-center">
-                          <div className="relative mx-auto w-[112px]">
-                            {canEdit && product.source === "shopify" ? (
-                              <>
-                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#95a1b8]">£</span>
-                                <input
-                                  className="h-8 w-full rounded-lg border border-[#cfd8e7] bg-white py-1 pl-6 pr-2 text-center text-sm text-[#3f4d65] outline-none transition focus:border-[#90a5cd]"
-                                  onBlur={() => void saveShopifyPrice(product)}
-                                  onChange={(event) => updateShopifyPriceDraft(product.id, event.target.value)}
-                                  type="text"
-                                  value={product.shopifyPrice}
-                                />
-                              </>
-                            ) : (
-                              <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
-                                {product.shopifyPrice ? toCurrencyValue(product.shopifyPrice) : "--"}
+                          {product.source === "amazon" ? (
+                            <MarketPlaceholder />
+                          ) : (
+                            <>
+                              <div className="relative mx-auto w-[112px]">
+                                {canEdit && product.source === "shopify" ? (
+                                  <>
+                                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#95a1b8]">£</span>
+                                    <input
+                                      className="h-8 w-full rounded-lg border border-[#cfd8e7] bg-white py-1 pl-6 pr-2 text-center text-sm text-[#3f4d65] outline-none transition focus:border-[#90a5cd]"
+                                      onBlur={() => void saveShopifyPrice(product)}
+                                      onChange={(event) => updateShopifyPriceDraft(product.id, event.target.value)}
+                                      type="text"
+                                      value={product.shopifyPrice}
+                                    />
+                                  </>
+                                ) : (
+                                  <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
+                                    {product.shopifyPrice ? toCurrencyValue(product.shopifyPrice) : "--"}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                          <div className="mt-1 flex items-center justify-center gap-1.5">
-                            <span
-                              className={`h-2 w-2 rounded-full ${
-                                product.source === "shopify"
-                                  ? product.status.toUpperCase() === "ACTIVE"
-                                    ? "bg-[#2bc7c4]"
-                                    : "bg-[#e3b101]"
-                                  : "bg-[#4a84ef]"
-                              }`}
-                            />
-                            <span className="text-xs text-[#5b6e89]">
-                              {product.source === "shopify" ? product.status || "DRAFT" : "AI Draft"}
-                            </span>
-                          </div>
+                              <div className="mt-1 flex items-center justify-center gap-1.5">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${
+                                    product.source === "shopify"
+                                      ? product.status.toUpperCase() === "ACTIVE"
+                                        ? "bg-[#2bc7c4]"
+                                        : "bg-[#e3b101]"
+                                      : "bg-[#4a84ef]"
+                                  }`}
+                                />
+                                <span className="text-xs text-[#5b6e89]">
+                                  {product.source === "shopify" ? product.status || "DRAFT" : "AI Draft"}
+                                </span>
+                              </div>
+                            </>
+                          )}
                         </td>
                         <td className="border-l border-[#ffe0bc] px-4 py-4 text-center">
                           {product.amazonSku || product.amazonStatus || product.amazonPrice ? (
@@ -574,7 +594,11 @@ export default function ProductsPage() {
                               </Link>
                               <Link
                                 className="text-[#223763] transition hover:text-[#121f39]"
-                                href={`/products/add?id=${product.id}&source=${product.source}`}
+                                href={
+                                  product.source === "amazon"
+                                    ? `/products/add?market=amazon&product_id=${product.id}`
+                                    : `/products/add?id=${product.id}&source=${product.source}`
+                                }
                               >
                                 <Edit3 className="h-4 w-4" />
                               </Link>

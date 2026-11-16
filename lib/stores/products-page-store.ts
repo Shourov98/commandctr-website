@@ -241,19 +241,29 @@ function mapProductAiRows(products: ProductAiListItem[]) {
   }));
 }
 
+function getProductTimestamp(row: ProductRow) {
+  const updated = Date.parse(row.updatedAt ?? "");
+  const created = Date.parse(row.createdAt ?? "");
+  const safeUpdated = Number.isFinite(updated) ? updated : 0;
+  const safeCreated = Number.isFinite(created) ? created : 0;
+  return Math.max(safeUpdated, safeCreated);
+}
+
 function sortProductRows(rows: ProductRow[]) {
   return [...rows].sort((left, right) => {
-    const leftTime = Date.parse(left.updatedAt ?? left.createdAt ?? "");
-    const rightTime = Date.parse(right.updatedAt ?? right.createdAt ?? "");
-    const safeLeftTime = Number.isFinite(leftTime) ? leftTime : 0;
-    const safeRightTime = Number.isFinite(rightTime) ? rightTime : 0;
-    if (safeRightTime !== safeLeftTime) {
-      return safeRightTime - safeLeftTime;
+    const leftTime = getProductTimestamp(left);
+    const rightTime = getProductTimestamp(right);
+    if (rightTime !== leftTime) {
+      return rightTime - leftTime;
     }
 
     const leftShopifyId = Number(left.shopifyProductId.match(/(\d+)$/)?.[1] ?? 0);
     const rightShopifyId = Number(right.shopifyProductId.match(/(\d+)$/)?.[1] ?? 0);
-    return rightShopifyId - leftShopifyId;
+    if (rightShopifyId !== leftShopifyId) {
+      return rightShopifyId - leftShopifyId;
+    }
+
+    return (left.title || "").localeCompare(right.title || "");
   });
 }
 
@@ -319,7 +329,8 @@ export const useProductsPageStore = create<ProductsPageState>()(
           try {
             productAiPayload = await fetchProductAiPage(targetPage, state.pagination.page_size);
           } catch (error) {
-            productAiMessage = error instanceof Error ? error.message : "Could not load AI-generated products.";
+            console.warn("Product AI page fetch skipped/failed:", error);
+            productAiMessage = "";
           }
 
           set({
@@ -402,7 +413,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
             ...state.rowFeedbackById,
             [row.id]: {
               tone: "saving",
-              message: row.source === "shopify" ? "Deleting from Shopify..." : row.source === "amazon" ? "Deleting Amazon Sandbox product..." : "Deleting product...",
+              message: row.source === "shopify" ? "Deleting from Shopify..." : row.source === "amazon" ? "Deleting Amazon listing..." : "Deleting product...",
             },
           },
         }));

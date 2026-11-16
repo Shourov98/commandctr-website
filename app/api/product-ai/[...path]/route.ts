@@ -28,7 +28,8 @@ async function forwardRequest(request: NextRequest, pathSegments: string[]) {
 
   const backendBaseUrl = getBackendBaseUrl();
   const upstreamUrl = new URL(`${backendBaseUrl.replace(/\/$/, "")}/${pathSegments.join("/")}`);
-  const timeoutMs = getProxyTimeoutMs();
+  const isReadMethod = request.method === "GET" || request.method === "HEAD";
+  const timeoutMs = isReadMethod ? Math.min(getProxyTimeoutMs(), 8000) : getProxyTimeoutMs();
 
   request.nextUrl.searchParams.forEach((value, key) => {
     upstreamUrl.searchParams.set(key, value);
@@ -47,7 +48,7 @@ async function forwardRequest(request: NextRequest, pathSegments: string[]) {
     signal: AbortSignal.timeout(timeoutMs),
   };
 
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  if (!isReadMethod) {
     init.body = await request.arrayBuffer();
   }
 
@@ -57,19 +58,27 @@ async function forwardRequest(request: NextRequest, pathSegments: string[]) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Product AI backend request failed.";
+    const isConnRefused =
+      message.includes("fetch failed") ||
+      message.includes("ECONNREFUSED") ||
+      message.includes("connect ECONNREFUSED");
     const isTimeout =
-      message.includes("Headers Timeout") ||
-      message.includes("Body Timeout") ||
-      message.includes("timed out") ||
-      message.includes("fetch failed");
+      !isConnRefused &&
+      (message.includes("Headers Timeout") ||
+        message.includes("Body Timeout") ||
+        message.includes("timed out") ||
+        message.includes("TimeoutError") ||
+        message.includes("aborted"));
 
     return NextResponse.json(
       {
-        detail: isTimeout
-          ? `Product AI backend timed out after ${Math.round(timeoutMs / 1000)} seconds.`
-          : `Product AI backend request failed: ${message}`,
+        detail: isConnRefused
+          ? "Product AI backend service is offline or unreachable."
+          : isTimeout
+            ? `Product AI backend timed out after ${Math.round(timeoutMs / 1000)} seconds.`
+            : `Product AI backend request failed: ${message}`,
       },
-      { status: isTimeout ? 504 : 502 },
+      { status: isConnRefused ? 503 : isTimeout ? 504 : 502 },
     );
   }
 
