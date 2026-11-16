@@ -66,6 +66,9 @@ function downloadCsv(rows: InventoryRow[]) {
     "Master Count",
     "Safety Buffer",
     "Available",
+    "Amazon ASIN",
+    "Amazon SKU",
+    "Amazon Quantity",
     "eBay Listing ID",
     "eBay Quantity",
   ];
@@ -79,6 +82,9 @@ function downloadCsv(rows: InventoryRow[]) {
     String(row.masterCount),
     String(row.safetyBuffer),
     String(row.available),
+    row.amazonAsin ?? "",
+    row.amazonSku ?? "",
+    row.amazonQuantity === undefined ? "" : String(row.amazonQuantity),
     row.ebayListingId ?? "",
     row.ebayQuantity === undefined ? "" : String(row.ebayQuantity),
   ]);
@@ -111,10 +117,12 @@ export default function InventoryPage() {
   const loadInventory = useInventoryPageStore((state) => state.loadInventory);
   const importInventory = useInventoryPageStore((state) => state.importInventory);
   const updateMasterCountDraft = useInventoryPageStore((state) => state.updateMasterCountDraft);
+  const updateAmazonQuantityDraft = useInventoryPageStore((state) => state.updateAmazonQuantityDraft);
   // Restore this eBay draft updater when eBay inventory editing goes live again.
   // const updateEbayQuantityDraft = useInventoryPageStore((state) => state.updateEbayQuantityDraft);
   const updateSafetyBufferDraft = useInventoryPageStore((state) => state.updateSafetyBufferDraft);
   const saveMasterCount = useInventoryPageStore((state) => state.saveMasterCount);
+  const saveAmazonQuantity = useInventoryPageStore((state) => state.saveAmazonQuantity);
   // Restore this eBay save handler when eBay inventory editing goes live again.
   // const saveEbayQuantity = useInventoryPageStore((state) => state.saveEbayQuantity);
   const saveSafetyBuffer = useInventoryPageStore((state) => state.saveSafetyBuffer);
@@ -144,6 +152,8 @@ export default function InventoryPage() {
         item.title.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.shopifyProductId.toLowerCase().includes(query) ||
+        item.amazonSku?.toLowerCase().includes(query) ||
+        item.amazonAsin?.toLowerCase().includes(query) ||
         item.ebayListingId?.toLowerCase().includes(query)
       );
     });
@@ -398,7 +408,39 @@ export default function InventoryPage() {
                         </td>
 
                         <td className="border-l border-[#ffe0bc] px-4 py-4 text-center">
-                          <EmptyChannelCell />
+                          {item.amazonProductId || item.amazonSku ? (
+                            <>
+                              {canEdit ? (
+                                <input
+                                  className="h-8 w-[84px] rounded-lg border border-[#fbd38d] bg-white px-2 text-center text-sm text-[#3f4d65] outline-none"
+                                  min={0}
+                                  onBlur={() => void saveAmazonQuantity(item)}
+                                  onChange={(event) => updateAmazonQuantityDraft(item.id, event.target.value)}
+                                  type="number"
+                                  value={item.amazonQuantity ?? 0}
+                                />
+                              ) : (
+                                <div className="mx-auto text-sm font-semibold text-[#b7791f]">
+                                  {item.amazonQuantity !== undefined ? item.amazonQuantity : "--"}
+                                </div>
+                              )}
+                              <p className="mt-1 text-xs text-[#dd6b20]">
+                                {item.amazonStatus === "active" ? "Live Amazon FBM" : item.amazonStatus || "Amazon offer"}
+                              </p>
+                              {item.amazonAsin ? (
+                                <a
+                                  className="mt-0.5 block text-[11px] font-mono text-[#4a5568] hover:text-[#2b6cb0] hover:underline"
+                                  href={item.amazonListingUrl || `https://www.amazon.co.uk/dp/${item.amazonAsin}`}
+                                  rel="noopener noreferrer"
+                                  target="_blank"
+                                >
+                                  {item.amazonAsin}
+                                </a>
+                              ) : null}
+                            </>
+                          ) : (
+                            <EmptyChannelCell />
+                          )}
                         </td>
 
                         <td className="border-l border-[#d2e5ff] px-4 py-4 text-center">

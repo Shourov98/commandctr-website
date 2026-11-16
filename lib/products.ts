@@ -40,6 +40,14 @@ export type ProductListItem = {
   ebayDescriptionOverride?: string;
   ebayStatus?: string;
   lastEbaySyncAt?: string;
+  amazonSku?: string;
+  amazonAsin?: string;
+  amazonListingUrl?: string;
+  amazonStatus?: string;
+  amazonCondition?: string;
+  amazonFulfillmentChannel?: string;
+  amazonSubmissionId?: string;
+  lastAmazonSyncAt?: string;
   updatedAt?: string;
   createdAt?: string;
 };

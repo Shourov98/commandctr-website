@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { ApiClientError, AUTH_REQUIRED_MESSAGE, isAuthRequiredError } from "@/lib/auth";
+import { amazonProductsApi } from "@/lib/amazon-products";
 // Restore ebayApi when eBay inventory is enabled again:
 // import { ebayApi, type EbayInventoryLevel } from "@/lib/ebay";
 import { type EbayInventoryLevel } from "@/lib/ebay";
@@ -13,6 +14,12 @@ export type InventoryRow = {
   id: string;
   productDocumentId?: string;
   ebayProductId?: string;
+  amazonProductId?: string;
+  amazonSku?: string;
+  amazonAsin?: string;
+  amazonQuantity?: number;
+  amazonStatus?: string;
+  amazonListingUrl?: string;
   shopifyProductId: string;
   inventoryItemId: string;
   locationId: string;
@@ -62,9 +69,11 @@ type InventoryPageState = {
   updateRowFeedback: (rowId: string, feedback: InventoryRowFeedback) => void;
   updateMasterCountDraft: (rowId: string, value: string) => void;
   updateEbayQuantityDraft: (rowId: string, value: string) => void;
+  updateAmazonQuantityDraft: (rowId: string, value: string) => void;
   updateSafetyBufferDraft: (rowId: string, value: string) => void;
   saveMasterCount: (row: InventoryRow) => Promise<void>;
   saveEbayQuantity: (row: InventoryRow) => Promise<void>;
+  saveAmazonQuantity: (row: InventoryRow) => Promise<void>;
   saveSafetyBuffer: (row: InventoryRow) => Promise<void>;
 };
 
@@ -189,6 +198,62 @@ function mergeEbayInventory(rows: InventoryRow[], ebayLevels: EbayInventoryLevel
   return nextRows;
 }
 
+function mergeAmazonInventory(rows: InventoryRow[], products: ProductListItem[]): InventoryRow[] {
+  const nextRows: InventoryRow[] = [...rows];
+  const rowIndexBySku = new Map(
+    nextRows
+      .map((row, index) => [normalizeSku(row.sku), index] as const)
+      .filter(([sku]) => Boolean(sku) && sku !== "n/a"),
+  );
+
+  const amazonProducts = products.filter((p) => p.marketplace === "amazon" || p.amazonSku);
+
+  for (const prod of amazonProducts) {
+    const sku = prod.amazonSku || prod.variants[0]?.sku || "";
+    const quantity = clampNonNegative(prod.totalInventory ?? prod.variants[0]?.inventoryQuantity ?? 0);
+    const prodId = prod._id ?? prod.id ?? "";
+    const matchingIndex = rowIndexBySku.get(normalizeSku(sku));
+
+    if (matchingIndex !== undefined) {
+      nextRows[matchingIndex] = {
+        ...nextRows[matchingIndex],
+        amazonProductId: prodId,
+        amazonSku: sku,
+        amazonAsin: prod.amazonAsin,
+        amazonQuantity: quantity,
+        amazonStatus: prod.amazonStatus ?? prod.status,
+        amazonListingUrl: prod.amazonListingUrl ?? (prod.amazonAsin ? `https://www.amazon.co.uk/dp/${prod.amazonAsin}` : undefined),
+        featuredImage: usableImageUrl(nextRows[matchingIndex].featuredImage ?? prod.featuredImage),
+      };
+      continue;
+    }
+
+    nextRows.push({
+      id: `amazon:${prodId}`,
+      productDocumentId: prodId,
+      amazonProductId: prodId,
+      shopifyProductId: "",
+      inventoryItemId: "",
+      locationId: "",
+      locationName: "Amazon UK",
+      title: prod.title || "Untitled Amazon Product",
+      sku: sku || "N/A",
+      featuredImage: usableImageUrl(prod.featuredImage),
+      masterCount: quantity,
+      amazonSku: sku,
+      amazonAsin: prod.amazonAsin,
+      amazonQuantity: quantity,
+      amazonStatus: prod.amazonStatus ?? prod.status,
+      amazonListingUrl: prod.amazonListingUrl ?? (prod.amazonAsin ? `https://www.amazon.co.uk/dp/${prod.amazonAsin}` : undefined),
+      available: quantity,
+      safetyBuffer: 0,
+      lowStockThreshold: 5,
+    });
+  }
+
+  return nextRows;
+}
+
 function mapInventoryRows(
   inventory: InventoryRecord[],
   products: ProductListItem[],
@@ -240,9 +305,12 @@ function mapInventoryRows(
       return b.sortShopifyId - a.sortShopifyId;
     });
 
-    return mergeEbayInventory(
-      rows.map(stripInventorySortFields),
-      ebayLevels,
+    return mergeAmazonInventory(
+      mergeEbayInventory(
+        rows.map(stripInventorySortFields),
+        ebayLevels,
+      ),
+      products,
     );
   }
 
@@ -281,9 +349,12 @@ function mapInventoryRows(
     return b.sortShopifyId - a.sortShopifyId;
   });
 
-  return mergeEbayInventory(
-    rows.map(stripInventorySortFields),
-    ebayLevels,
+  return mergeAmazonInventory(
+    mergeEbayInventory(
+      rows.map(stripInventorySortFields),
+      ebayLevels,
+    ),
+    products,
   );
 }
 
@@ -451,6 +522,23 @@ export const useInventoryPageStore = create<InventoryPageState>()(
           }),
         }));
       },
+      updateAmazonQuantityDraft: (rowId, value) => {
+        const numericValue = Number(value);
+        set((state) => ({
+          items: state.items.map((item) => {
+            if (item.id !== rowId) {
+              return item;
+            }
+
+            const amazonQuantity = Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : 0;
+            return {
+              ...item,
+              amazonQuantity,
+              ...(!item.shopifyProductId ? { available: amazonQuantity, masterCount: amazonQuantity } : {}),
+            };
+          }),
+        }));
+      },
       updateSafetyBufferDraft: (rowId, value) => {
         const numericValue = Number(value);
         set((state) => ({
@@ -535,6 +623,33 @@ export const useInventoryPageStore = create<InventoryPageState>()(
           get().updateRowFeedback(row.id, {
             tone: "error",
             message: error instanceof ApiClientError ? error.message : "Could not update eBay inventory.",
+          });
+        }
+      },
+      async saveAmazonQuantity(row) {
+        const { globalEditMode } = get();
+        if (!globalEditMode || !row.amazonProductId || row.amazonQuantity === undefined) {
+          return;
+        }
+
+        get().updateRowFeedback(row.id, {
+          tone: "saving",
+          message: "Updating Amazon FBM inventory...",
+        });
+
+        try {
+          await amazonProductsApi.patchOffer(row.amazonProductId, {
+            quantity: row.amazonQuantity,
+          });
+          await get().loadInventory({ forceRefresh: true });
+          get().updateRowFeedback(row.id, {
+            tone: "success",
+            message: "Amazon inventory updated.",
+          });
+        } catch (error) {
+          get().updateRowFeedback(row.id, {
+            tone: "error",
+            message: error instanceof ApiClientError ? error.message : "Could not update Amazon inventory.",
           });
         }
       },

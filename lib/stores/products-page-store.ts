@@ -24,6 +24,12 @@ export type ProductRow = {
   inventoryLocationId?: string;
   source: "shopify" | "amazon" | "product_ai" | "twinstr" | "commandctr";
   marketplace?: string;
+  amazonSku?: string;
+  amazonAsin?: string;
+  amazonListingUrl?: string;
+  amazonStatus?: string;
+  amazonPrice?: string;
+  amazonStock?: number;
   ebayStatus?: string;
   ebayListingId?: string;
   ebayOfferId?: string;
@@ -200,6 +206,12 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       inventoryLocationId: inventoryItemId ? (inventoryLocationByItemId.get(inventoryItemId) ?? "") : "",
       source: product.marketplace === "amazon" ? "amazon" : (product.marketplace ?? "shopify") === "shopify" ? "shopify" : "twinstr",
       marketplace: product.marketplace,
+      amazonSku: product.amazonSku ?? (product.marketplace === "amazon" ? primaryVariant?.sku : undefined),
+      amazonAsin: product.amazonAsin,
+      amazonListingUrl: product.amazonListingUrl ?? (product.amazonAsin ? `https://www.amazon.co.uk/dp/${product.amazonAsin}` : undefined),
+      amazonStatus: product.amazonStatus ?? (product.marketplace === "amazon" ? product.status : undefined),
+      amazonPrice: product.marketplace === "amazon" ? (primaryVariant?.price ?? "") : undefined,
+      amazonStock: product.marketplace === "amazon" ? toSafeStock(liveStock) : undefined,
       ebayStatus: product.ebayStatus,
       ebayListingId: product.ebayListingId,
       ebayOfferId: product.ebayOfferId,

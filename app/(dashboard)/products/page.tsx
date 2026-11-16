@@ -503,7 +503,39 @@ export default function ProductsPage() {
                           </div>
                         </td>
                         <td className="border-l border-[#ffe0bc] px-4 py-4 text-center">
-                          <MarketPlaceholder />
+                          {product.amazonSku || product.amazonStatus || product.amazonPrice ? (
+                            <>
+                              <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
+                                {product.amazonPrice ? toCurrencyValue(product.amazonPrice) : "--"}
+                              </div>
+                              <div className="mt-1 flex items-center justify-center gap-1.5">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${
+                                    (product.amazonStatus || "").toUpperCase() === "ACCEPTED" || (product.amazonStatus || "").toUpperCase() === "ACTIVE"
+                                      ? "bg-emerald-500"
+                                      : "bg-amber-500"
+                                  }`}
+                                />
+                                <span className="text-xs text-[#5b6e89] truncate max-w-[130px]">
+                                  {product.amazonListingUrl ? (
+                                    <a
+                                      className="text-blue-600 hover:underline"
+                                      href={product.amazonListingUrl}
+                                      rel="noreferrer"
+                                      target="_blank"
+                                      title={product.amazonAsin ? `View ASIN ${product.amazonAsin} on Amazon UK` : "View on Amazon UK"}
+                                    >
+                                      {product.amazonStatus || "Live"} {product.amazonAsin ? `• ${product.amazonAsin}` : ""}
+                                    </a>
+                                  ) : (
+                                    `${product.amazonStatus || "ACCEPTED"} ${product.amazonSku ? `• ${product.amazonSku}` : ""}`
+                                  )}
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <MarketPlaceholder />
+                          )}
                         </td>
                         <td className="border-l border-[#d2e5ff] px-4 py-4 text-center">
                           <ComingSoonMarketPlaceholder />

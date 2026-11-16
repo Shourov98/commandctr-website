@@ -45,7 +45,12 @@ import { ebayApi } from "@/lib/ebay";
 import { prepareProductAiImageUpload } from "@/lib/product-ai-upload";
 import { productsApi, type ProductCreatePayload, type ProductListItem } from "@/lib/products";
 import { shopifyProductsApi } from "@/lib/shopify-products";
-import { amazonProductsApi } from "@/lib/amazon-products";
+import {
+  amazonProductsApi,
+  type AmazonCatalogItem,
+  type AmazonRestrictionsCheck,
+  type AmazonOfferValidationResult,
+} from "@/lib/amazon-products";
 
 type MarketKey = "amazon" | "ebay" | "etsy" | "tiktok" | "shopify";
 
@@ -1161,6 +1166,9 @@ function sanitizeAmazonProductIdentifier(type: string, value: string) {
 }
 
 function validateAmazonRequiredAttributes(attributes: Record<string, string>, identifierMode = "gtin", exemptionConfirmed = false) {
+  if (identifierMode === "asin") {
+    return [];
+  }
   const errors: string[] = [];
   const identifier = parseAmazonAttribute(attributes, "externally_assigned_product_identifier");
   const identifierType = String(identifier.type ?? "ean").toLowerCase();
@@ -2846,6 +2854,15 @@ export default function AddProductEditor({
   const [amazonIdentifierMode, setAmazonIdentifierMode] = useState<"gtin" | "asin" | "no_identifier">("gtin");
   const [amazonExistingAsin, setAmazonExistingAsin] = useState("");
   const [amazonExemptionConfirmed, setAmazonExemptionConfirmed] = useState(false);
+  const [amazonCatalogItem, setAmazonCatalogItem] = useState<AmazonCatalogItem | null>(null);
+  const [amazonRestrictions, setAmazonRestrictions] = useState<AmazonRestrictionsCheck | null>(null);
+  const [isVerifyingAsin, setIsVerifyingAsin] = useState(false);
+  const [asinVerificationError, setAsinVerificationError] = useState<string | null>(null);
+  const [amazonOfferCondition, setAmazonOfferCondition] = useState("new_new");
+  const [amazonFulfillmentChannel, setAmazonFulfillmentChannel] = useState("DEFAULT");
+  const [amazonValidationResult, setAmazonValidationResult] = useState<AmazonOfferValidationResult | null>(null);
+  const [isValidatingAmazon, setIsValidatingAmazon] = useState(false);
+  const [showConfirmPublishModal, setShowConfirmPublishModal] = useState(false);
   useEffect(() => {
     setDraft((prev) => withMissingEbayDraftDefaults(prev, publishVendor));
   }, [
@@ -4870,20 +4887,118 @@ export default function AddProductEditor({
     }
   }
 
-  async function uploadToAmazon(mode: "active" | "draft") {
-    const title = safeTrim(draft.amazon.title) || getPublishTitle();
+  async function handleVerifyAsin() {
+    const clean = amazonExistingAsin.trim().toUpperCase();
+    if (clean.length !== 10) {
+      setAsinVerificationError("ASIN must be exactly 10 characters (e.g. B09TDW5M2C).");
+      return;
+    }
+    setIsVerifyingAsin(true);
+    setAsinVerificationError(null);
+    setAmazonCatalogItem(null);
+    setAmazonRestrictions(null);
+    try {
+      const [item, restr] = await Promise.all([
+        amazonProductsApi.lookupCatalogItem(clean),
+        amazonProductsApi.checkRestrictions(clean, amazonOfferCondition),
+      ]);
+      setAmazonCatalogItem(item);
+      setAmazonRestrictions(restr);
+      if (item.title && !draft.amazon.title) {
+        setDraft((prev) => ({
+          ...prev,
+          amazon: { ...prev.amazon, title: item.title },
+        }));
+      }
+      if (item.brand && !publishVendor) {
+        setPublishVendor(item.brand);
+      }
+      const statusText = restr.restricted
+        ? `Amazon UK product verified: "${item.title}". Note: Listing is restricted for your account.`
+        : `Amazon UK product verified: "${item.title}". You are eligible to sell as New.`;
+      setStatusMessage(statusText);
+      setShopifyPublishMessage(statusText);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to verify ASIN on Amazon UK.";
+      setAsinVerificationError(msg);
+      setStatusMessage(msg);
+      setShopifyPublishMessage(msg);
+    } finally {
+      setIsVerifyingAsin(false);
+    }
+  }
+
+  async function handleValidateAmazonOffer() {
+    const sku = publishSku.trim();
+    const normalizedPrice = getSanitizedPublishPrice();
+    const stock = getSanitizedPublishStock();
+    const asin = amazonExistingAsin.trim().toUpperCase();
+
+    if (!asin || asin.length !== 10) {
+      setStatusMessage("Enter a valid 10-character Amazon ASIN before validating.");
+      return;
+    }
+    if (!sku) {
+      setStatusMessage("SKU is required before validating Amazon offer.");
+      return;
+    }
+    if (!normalizedPrice) {
+      setStatusMessage("Default price is required before validating Amazon offer.");
+      return;
+    }
+
+    setIsValidatingAmazon(true);
+    setShopifyPublishMessage("Validating offer against Amazon UK schema...");
+    try {
+      const res = await amazonProductsApi.validateListing({
+        title: amazonCatalogItem?.title || safeTrim(draft.amazon.title) || getPublishTitle() || "Amazon Catalog Item Offer",
+        sku,
+        price: normalizedPrice,
+        quantity: stock,
+        identifierMode: "asin",
+        existingAsin: asin,
+        condition: amazonOfferCondition,
+        fulfillmentChannel: amazonFulfillmentChannel,
+        productType: amazonCatalogItem?.productType || getAmazonProductType() || "PRODUCT",
+      });
+      setAmazonValidationResult(res);
+      if (res.valid) {
+        const msg = "Validation Passed: Offer payload complies with Amazon UK schema. Ready to publish!";
+        setShopifyPublishMessage(msg);
+        setStatusMessage(msg);
+      } else {
+        const count = res.issues?.length || 0;
+        const msg = `Validation returned ${count} issue(s) from Amazon. Review issues before publishing.`;
+        setShopifyPublishMessage(msg);
+        setStatusMessage(msg);
+      }
+    } catch (error) {
+      const msg = formatAmazonPublishError(error);
+      setShopifyPublishMessage(msg);
+      setStatusMessage(msg);
+    } finally {
+      setIsValidatingAmazon(false);
+    }
+  }
+
+  async function uploadToAmazon(mode: "active" | "draft", confirmed = false) {
+    const isAsinMode = amazonIdentifierMode === "asin";
+    const title = safeTrim(draft.amazon.title) || (isAsinMode && amazonCatalogItem?.title ? amazonCatalogItem.title : getPublishTitle());
     const sku = publishSku.trim();
     const normalizedPrice = getSanitizedPublishPrice();
     const stock = getSanitizedPublishStock();
     setShopifyPublishMessage("");
 
     const missingFields: string[] = [];
-    if (!title) missingFields.push("Product title");
+    if (!title && !isAsinMode) missingFields.push("Product title");
     if (!sku) missingFields.push("SKU");
     if (!normalizedPrice) missingFields.push("Default price");
+    if (isAsinMode && amazonExistingAsin.trim().length !== 10) {
+      missingFields.push("Valid 10-character Amazon ASIN");
+    }
     const amazonAttributes = withAmazonUkDefaults(draft.amazon.structured_attributes, getAmazonProductType());
     missingFields.push(...validateAmazonRequiredAttributes(amazonAttributes, amazonIdentifierMode, amazonExemptionConfirmed));
-    setPublishFieldErrors({ title: !title, price: !normalizedPrice });
+    setPublishFieldErrors({ title: !title && !isAsinMode, price: !normalizedPrice });
     if (missingFields.length) {
       const message = `Required before Amazon upload: ${missingFields.join(", ")}.`;
       setShopifyPublishMessage(message);
@@ -4891,24 +5006,39 @@ export default function AddProductEditor({
       return;
     }
 
+    if (isAsinMode && amazonRestrictions?.restricted) {
+      const restrictionMsg = `Cannot publish to Amazon UK: Listing is restricted for your seller account (${amazonRestrictions.reasons.map((r) => r.message || r.reasonCode).join("; ") || "Approval required"}).`;
+      setShopifyPublishMessage(restrictionMsg);
+      setStatusMessage(restrictionMsg);
+      return;
+    }
+
+    // Explicit confirmation modal for live production publishing
+    if (isAsinMode && mode === "active" && !confirmed) {
+      setShowConfirmPublishModal(true);
+      return;
+    }
+
     setShopifySubmitMode(mode);
     setPublishSubmitting((prev) => ({ ...prev, amazon: true }));
-    setShopifyPublishMessage("Validating and submitting product to Amazon production...");
+    setShopifyPublishMessage(isAsinMode ? "Submitting offer to Amazon UK..." : "Validating and submitting product to Amazon production...");
     try {
       const result = await amazonProductsApi.saveListing({
-        title,
+        title: title || (isAsinMode ? "Amazon Catalog Offer" : "New Product"),
         sku,
         price: normalizedPrice!,
         quantity: stock,
-        description: safeTrim(draft.amazon.description) || getPublishDescription() || undefined,
-        brand: getPublishVendor() || undefined,
-        productType: getAmazonProductType() || "PRODUCT",
-        imagePath: draft.images.amazon.absolute_path || draft.images.amazon.relative_path || undefined,
-        bulletPoints: draft.amazon.bullet_points.filter((value) => value.trim()),
-        backendSearchTerms: draft.amazon.backend_search_terms.filter((value) => value.trim()),
-        attributes: amazonAttributes,
+        description: isAsinMode ? undefined : (safeTrim(draft.amazon.description) || getPublishDescription() || undefined),
+        brand: isAsinMode ? (amazonCatalogItem?.brand || undefined) : (getPublishVendor() || undefined),
+        productType: isAsinMode ? (amazonCatalogItem?.productType || "PRODUCT") : (getAmazonProductType() || "PRODUCT"),
+        imagePath: isAsinMode ? undefined : (draft.images.amazon.absolute_path || draft.images.amazon.relative_path || undefined),
+        bulletPoints: isAsinMode ? [] : draft.amazon.bullet_points.filter((value) => value.trim()),
+        backendSearchTerms: isAsinMode ? [] : draft.amazon.backend_search_terms.filter((value) => value.trim()),
+        attributes: isAsinMode ? {} : amazonAttributes,
         identifierMode: amazonIdentifierMode,
-        existingAsin: amazonIdentifierMode === "asin" ? amazonExistingAsin.trim() || undefined : undefined,
+        existingAsin: isAsinMode ? amazonExistingAsin.trim().toUpperCase() : undefined,
+        condition: isAsinMode ? amazonOfferCondition : "new_new",
+        fulfillmentChannel: isAsinMode ? amazonFulfillmentChannel : "DEFAULT",
         exemptionConfirmed: amazonIdentifierMode === "no_identifier" ? amazonExemptionConfirmed : false,
         exemptionBrand: amazonIdentifierMode === "no_identifier" ? (getPublishVendor() || "Generic") : undefined,
         exemptionCategory: amazonIdentifierMode === "no_identifier" ? getAmazonProductType() : undefined,
@@ -4921,9 +5051,11 @@ export default function AddProductEditor({
       }
       const issueCount = result.amazonIssues?.length ?? 0;
       const environmentLabel = result.environment === "production" ? "Production" : "Sandbox";
-      const message = `Amazon ${environmentLabel} ${result.amazonStatus ?? "ACCEPTED"}. SKU: ${sku}.${issueCount ? ` Issues: ${issueCount}.` : ""} The submission was saved in CommandCtr.`;
+      const asinLabel = result.amazonAsin ? ` ASIN: ${result.amazonAsin}.` : "";
+      const message = `Amazon ${environmentLabel} ${result.amazonStatus ?? "ACCEPTED"}. SKU: ${sku}.${asinLabel}${issueCount ? ` Issues: ${issueCount}.` : ""} The submission was saved in CommandCtr.`;
       setShopifyPublishMessage(message);
       setStatusMessage(message);
+      setShowConfirmPublishModal(false);
     } catch (error) {
       const message = formatAmazonPublishError(error);
       setShopifyPublishMessage(message);
@@ -6990,79 +7122,253 @@ export default function AddProductEditor({
                           <option value="asin">Product matches an existing Amazon ASIN</option>
                           <option value="no_identifier">Product has no barcode / product identifier</option>
                         </select>
-                        {amazonIdentifierMode === "asin" ? <input className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm" placeholder="Existing 10-character Amazon ASIN" value={amazonExistingAsin} onChange={(event) => setAmazonExistingAsin(event.target.value.toUpperCase().slice(0, 10))} /> : null}
+                        {amazonIdentifierMode === "asin" ? (
+                          <div className="mt-3 space-y-3">
+                            <div className="flex gap-2">
+                              <input
+                                className="h-10 flex-1 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm font-mono uppercase outline-none focus:border-[#2b7cf5]"
+                                maxLength={10}
+                                placeholder="Enter 10-character Amazon ASIN (e.g. B09TDW5M2C)"
+                                value={amazonExistingAsin}
+                                onChange={(event) => setAmazonExistingAsin(event.target.value.toUpperCase().slice(0, 10))}
+                              />
+                              <button
+                                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-[#172544] px-4 text-xs font-bold text-white hover:bg-[#233863] disabled:opacity-50 transition"
+                                disabled={isVerifyingAsin || amazonExistingAsin.trim().length !== 10}
+                                onClick={() => void handleVerifyAsin()}
+                                type="button"
+                              >
+                                {isVerifyingAsin ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                                {isVerifyingAsin ? "Verifying..." : "Verify Product"}
+                              </button>
+                            </div>
+                            {asinVerificationError ? (
+                              <p className="text-xs font-medium text-rose-600">{asinVerificationError}</p>
+                            ) : null}
+
+                            {amazonCatalogItem ? (
+                              <div className="rounded-xl border border-[#cde0fb] bg-white p-4 shadow-xs">
+                                <div className="flex gap-4 items-start">
+                                  {amazonCatalogItem.imageUrl ? (
+                                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-[#e2e8f0] bg-white p-1">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        alt={amazonCatalogItem.title}
+                                        className="h-full w-full object-contain"
+                                        src={amazonCatalogItem.imageUrl}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+                                      <Boxes className="h-8 w-8" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900 font-mono">
+                                        ASIN: {amazonCatalogItem.asin}
+                                      </span>
+                                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                                        Type: {amazonCatalogItem.productType}
+                                      </span>
+                                      <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                        Marketplace: Amazon UK
+                                      </span>
+                                    </div>
+                                    <h4 className="mt-1.5 text-sm font-semibold text-[#1e293b] line-clamp-2">
+                                      {amazonCatalogItem.title}
+                                    </h4>
+                                    <p className="mt-0.5 text-xs text-[#64748b]">
+                                      Brand / Mfr: {amazonCatalogItem.brand || amazonCatalogItem.manufacturer || "Independently published"}
+                                    </p>
+
+                                    <div className="mt-2.5">
+                                      {amazonRestrictions?.restricted ? (
+                                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 flex items-start gap-2">
+                                          <CircleAlert className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                                          <div>
+                                            <p className="font-bold">Listing Restricted for your Seller Account</p>
+                                            {amazonRestrictions.reasons.map((r, i) => (
+                                              <p key={i} className="mt-0.5">{r.message || r.reasonCode}</p>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                          Eligible to list as New on Amazon UK
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
                         {amazonIdentifierMode === "no_identifier" ? <div className="mt-3 space-y-2 text-xs text-[#7184a3]"><p>For an unbranded/Generic product, Amazon may require a GTIN exemption approved in Seller Central. CommandCtr cannot approve or bypass it.</p><label className="flex items-start gap-2 text-[#33435f]"><input type="checkbox" checked={amazonExemptionConfirmed} onChange={(event) => setAmazonExemptionConfirmed(event.target.checked)} /> I confirm the GTIN exemption is approved for this Amazon UK brand and category.</label><p>Seller Central → Catalogue → Add Products → Create a new listing → select category → No product identifier → apply for exemption if prompted.</p></div> : null}
                       </div>
-                      <div className="grid grid-cols-[150px_1fr] gap-3 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
-                        <label className="col-span-2 text-xs font-bold uppercase tracking-wider text-[#8093b2]">External Product ID</label>
-                        <select disabled={amazonIdentifierMode !== "gtin"}
-                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
-                          onChange={(event) => {
-                            const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
-                            if (value) {
-                              const type = event.target.value;
-                              updateAmazonAttribute("externally_assigned_product_identifier", sanitizeAmazonProductIdentifier(type, value), (next) => [{ type, value: next }]);
-                            }
-                          }}
-                          value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean"}
-                        >
-                          <option value="ean">EAN</option>
-                          <option value="gtin">GTIN</option>
-                          <option value="upc">UPC</option>
-                        </select>
-                        <input disabled={amazonIdentifierMode !== "gtin"}
-                          className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
-                          inputMode="numeric"
-                          onChange={(event) => {
-                            const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
-                            const value = sanitizeAmazonProductIdentifier(type, event.target.value);
-                            updateAmazonAttribute("externally_assigned_product_identifier", value, (next) => [{ type, value: next }]);
-                          }}
-                          maxLength={amazonProductIdentifierMaxLength(amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean")}
-                          placeholder="Digits only"
-                          value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier")}
-                        />
-                        {(() => {
-                          const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
-                          const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
-                          if (!value) return <p className="col-span-2 text-[10px] text-[#8ea0bf]">Enter the real product barcode. EAN is usually 13 digits in the UK.</p>;
-                          return isValidAmazonProductIdentifier(type, value) ? (
-                            <p className="col-span-2 text-[10px] font-medium text-emerald-600">Valid {type.toUpperCase()} format and check digit.</p>
-                          ) : (
-                            <p className="col-span-2 text-[10px] font-medium text-rose-600">Enter Twinstr&apos;s real {type.toUpperCase()} with the correct number of digits and check digit. Sample barcode values are not accepted.</p>
-                          );
-                        })()}
-                      </div>
-                      <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
-                        <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Dangerous Goods Regulation</label>
-                        <select
-                          className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
-                          onChange={(event) => updateAmazonAttribute("supplier_declared_dg_hz_regulation", event.target.value)}
-                          value={amazonAttributeValue(draft.amazon.structured_attributes, "supplier_declared_dg_hz_regulation") || (/(water\s*bottle|^bottle$)/i.test(getAmazonProductType().trim()) ? "not_applicable" : "")}
-                        >
-                          <option value="">Select regulation</option>
-                          <option value="not_applicable">Not applicable</option>
-                          <option value="ghs">GHS</option>
-                          <option value="storage">Storage</option>
-                          <option value="transportation">Transportation</option>
-                          <option value="waste">Waste</option>
-                          <option value="other">Other</option>
-                          <option value="unknown">Unknown</option>
-                        </select>
-                      </div>
+
+                      {amazonIdentifierMode === "asin" ? (
+                        <>
+                          <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                            <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Item Condition</label>
+                            <select
+                              className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                              value={amazonOfferCondition}
+                              onChange={(e) => setAmazonOfferCondition(e.target.value)}
+                            >
+                              <option value="new_new">New (new_new)</option>
+                              <option value="used_like_new">Used - Like New (used_like_new)</option>
+                              <option value="used_very_good">Used - Very Good (used_very_good)</option>
+                              <option value="used_good">Used - Good (used_good)</option>
+                              <option value="used_acceptable">Used - Acceptable (used_acceptable)</option>
+                              <option value="refurbished_refurbished">Refurbished (refurbished_refurbished)</option>
+                              <option value="collectible_like_new">Collectible - Like New (collectible_like_new)</option>
+                            </select>
+                          </div>
+                          <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                            <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Fulfillment Channel</label>
+                            <select
+                              className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                              value={amazonFulfillmentChannel}
+                              onChange={(e) => setAmazonFulfillmentChannel(e.target.value)}
+                            >
+                              <option value="DEFAULT">Merchant Fulfilled / FBM (DEFAULT)</option>
+                            </select>
+                          </div>
+                          <div className="lg:col-span-2 rounded-2xl border border-[#cde0fb] bg-[#f3f8ff] p-4">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                              <div>
+                                <h4 className="text-sm font-bold text-[#1e3a8a]">Offer Validation & Preview</h4>
+                                <p className="mt-0.5 text-xs text-[#3b82f6]">
+                                  Verify your offer payload (SKU: {publishSku || "--"}, Price: £{publishPrice || "--"}, Qty: {publishStock || "--"}) against Amazon UK before publishing.
+                                </p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[#2563eb] bg-white px-3 text-xs font-bold text-[#2563eb] hover:bg-blue-50 disabled:opacity-50 transition"
+                                  disabled={isValidatingAmazon || !amazonExistingAsin.trim()}
+                                  onClick={() => void handleValidateAmazonOffer()}
+                                  type="button"
+                                >
+                                  {isValidatingAmazon ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                                  {isValidatingAmazon ? "Validating..." : "Validate Offer Preview"}
+                                </button>
+                                <button
+                                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#2563eb] px-4 text-xs font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50 transition"
+                                  disabled={Boolean(amazonRestrictions?.restricted) || !amazonExistingAsin.trim() || publishSubmitting.amazon}
+                                  onClick={() => void uploadToAmazon("active", false)}
+                                  type="button"
+                                >
+                                  {publishSubmitting.amazon ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                                  Publish Offer to Amazon UK
+                                </button>
+                              </div>
+                            </div>
+                            {amazonValidationResult ? (
+                              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold text-slate-800">
+                                    Amazon Schema Validation:{" "}
+                                    <span className={amazonValidationResult.valid ? "text-emerald-600" : "text-rose-600"}>
+                                      {amazonValidationResult.status}
+                                    </span>
+                                  </span>
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${amazonValidationResult.valid ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                                    {amazonValidationResult.valid ? "PASSED" : "ISSUES FOUND"}
+                                  </span>
+                                </div>
+                                {amazonValidationResult.issues?.length ? (
+                                  <div className="space-y-1 border-t border-slate-100 pt-2">
+                                    {amazonValidationResult.issues.map((iss, i) => (
+                                      <p key={i} className={`text-[11px] ${iss.severity === "ERROR" ? "text-rose-600 font-medium" : "text-amber-600"}`}>
+                                        • [{iss.severity || "INFO"}] {iss.message || iss.code} {iss.attributeNames?.length ? `(${iss.attributeNames.join(", ")})` : ""}
+                                      </p>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-emerald-600">No issues reported. The payload conforms to Amazon UK requirements.</p>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-[150px_1fr] gap-3 rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                            <label className="col-span-2 text-xs font-bold uppercase tracking-wider text-[#8093b2]">External Product ID</label>
+                            <select disabled={amazonIdentifierMode !== "gtin"}
+                              className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                              onChange={(event) => {
+                                const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
+                                if (value) {
+                                  const type = event.target.value;
+                                  updateAmazonAttribute("externally_assigned_product_identifier", sanitizeAmazonProductIdentifier(type, value), (next) => [{ type, value: next }]);
+                                }
+                              }}
+                              value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean"}
+                            >
+                              <option value="ean">EAN</option>
+                              <option value="gtin">GTIN</option>
+                              <option value="upc">UPC</option>
+                            </select>
+                            <input disabled={amazonIdentifierMode !== "gtin"}
+                              className="h-10 rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                              inputMode="numeric"
+                              onChange={(event) => {
+                                const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
+                                const value = sanitizeAmazonProductIdentifier(type, event.target.value);
+                                updateAmazonAttribute("externally_assigned_product_identifier", value, (next) => [{ type, value: next }]);
+                              }}
+                              maxLength={amazonProductIdentifierMaxLength(amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean")}
+                              placeholder="Digits only"
+                              value={amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier")}
+                            />
+                            {(() => {
+                              const type = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier", "type") || "ean";
+                              const value = amazonAttributeValue(draft.amazon.structured_attributes, "externally_assigned_product_identifier");
+                              if (!value) return <p className="col-span-2 text-[10px] text-[#8ea0bf]">Enter the real product barcode. EAN is usually 13 digits in the UK.</p>;
+                              return isValidAmazonProductIdentifier(type, value) ? (
+                                <p className="col-span-2 text-[10px] font-medium text-emerald-600">Valid {type.toUpperCase()} format and check digit.</p>
+                              ) : (
+                                <p className="col-span-2 text-[10px] font-medium text-rose-600">Enter Twinstr&apos;s real {type.toUpperCase()} with the correct number of digits and check digit. Sample barcode values are not accepted.</p>
+                              );
+                            })()}
+                          </div>
+                          <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] p-4">
+                            <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">Dangerous Goods Regulation</label>
+                            <select
+                              className="mt-3 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
+                              onChange={(event) => updateAmazonAttribute("supplier_declared_dg_hz_regulation", event.target.value)}
+                              value={amazonAttributeValue(draft.amazon.structured_attributes, "supplier_declared_dg_hz_regulation") || (/(water\s*bottle|^bottle$)/i.test(getAmazonProductType().trim()) ? "not_applicable" : "")}
+                            >
+                              <option value="">Select regulation</option>
+                              <option value="not_applicable">Not applicable</option>
+                              <option value="ghs">GHS</option>
+                              <option value="storage">Storage</option>
+                              <option value="transportation">Transportation</option>
+                              <option value="waste">Waste</option>
+                              <option value="other">Other</option>
+                              <option value="unknown">Unknown</option>
+                            </select>
+                          </div>
+                          <EditableListField
+                            helperText="One search term per line"
+                            label="Backend Search Terms"
+                            onChange={(values) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, backend_search_terms: values } }))}
+                            values={draft.amazon.backend_search_terms}
+                            renderAsTags={true}
+                          />
+                          <EditableAttributesField
+                            attributes={draft.amazon.structured_attributes}
+                            label="Advanced Amazon Attributes"
+                            onChange={(attributes) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, structured_attributes: attributes } }))}
+                          />
+                        </>
+                      )}
                     </div>
-                    <EditableListField
-                      helperText="One search term per line"
-                      label="Backend Search Terms"
-                      onChange={(values) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, backend_search_terms: values } }))}
-                      values={draft.amazon.backend_search_terms}
-                      renderAsTags={true}
-                    />
-                    <EditableAttributesField
-                      attributes={draft.amazon.structured_attributes}
-                      label="Advanced Amazon Attributes"
-                      onChange={(attributes) => setDraft((prev) => ({ ...prev, amazon: { ...prev.amazon, structured_attributes: attributes } }))}
-                    />
                   </>
                 ) : null}
 
@@ -10063,6 +10369,76 @@ export default function AddProductEditor({
           </div>
         </div>
       )}
+
+      {showConfirmPublishModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold text-[#1e293b]">Confirm Amazon UK Offer Publishing</h3>
+              <button
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                onClick={() => setShowConfirmPublishModal(false)}
+                type="button"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-900 leading-relaxed">
+              <strong>Production Listing Action:</strong> You are about to publish a live seller offer to Amazon UK. This will create an active offer attached to the existing catalogue product in Seller Central.
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Target ASIN:</span>
+                <span className="font-mono font-bold text-slate-900">{amazonExistingAsin}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Catalogue Product:</span>
+                <span className="font-semibold text-slate-800 text-right truncate max-w-[280px]">
+                  {amazonCatalogItem?.title || draft.amazon.title || "Amazon Product"}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Seller SKU:</span>
+                <span className="font-mono font-bold text-slate-900">{publishSku}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Selling Price (GBP):</span>
+                <span className="font-bold text-emerald-700">£{getSanitizedPublishPrice()}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Quantity (FBM):</span>
+                <span className="font-bold text-slate-900">{getSanitizedPublishStock()}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-500 font-medium">Condition:</span>
+                <span className="font-medium text-slate-800">{amazonOfferCondition}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-slate-500 font-medium">Fulfillment Channel:</span>
+                <span className="font-medium text-slate-800">Merchant Fulfilled ({amazonFulfillmentChannel})</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                className="h-10 rounded-lg border border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+                onClick={() => setShowConfirmPublishModal(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-[#2563eb] px-5 text-xs font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50 transition"
+                disabled={publishSubmitting.amazon}
+                onClick={() => void uploadToAmazon("active", true)}
+                type="button"
+              >
+                {publishSubmitting.amazon ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                Confirm and Publish to Amazon UK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
