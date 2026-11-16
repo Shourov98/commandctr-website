@@ -118,6 +118,21 @@ export const amazonProductsApi = {
     });
   },
 
+  getStatus() {
+    return requestWithAuth<{
+      connected: boolean;
+      marketplace: string;
+      environment: string;
+      displayName: string;
+      providerAccountRef: string;
+      marketplaceId: string;
+      currency: string;
+      status: string;
+      connectedAt?: string;
+      lastCheckedAt?: string;
+    }>("/amazon/status");
+  },
+
   getProductTypeDefinition(productType: string, requirements: string = "LISTING") {
     const params = new URLSearchParams({ requirements });
     return requestWithAuth<Record<string, unknown>>(`/amazon/product-types/${encodeURIComponent(productType)}/definition?${params.toString()}`);
