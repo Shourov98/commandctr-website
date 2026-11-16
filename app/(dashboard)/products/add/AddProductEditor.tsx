@@ -1614,23 +1614,29 @@ function formatAmazonPublishError(error: unknown) {
     return error instanceof Error ? error.message : "Could not upload to Amazon.";
   }
   const outer = error.details && typeof error.details === "object"
-    ? error.details as { details?: unknown }
+    ? error.details as Record<string, unknown>
     : null;
   const inner = outer?.details && typeof outer.details === "object"
-    ? outer.details as { issues?: unknown }
-    : null;
-  const issues = Array.isArray(inner?.issues) ? inner.issues : [];
+    ? outer.details as Record<string, unknown>
+    : outer;
+  const issues = Array.isArray(inner?.issues)
+    ? inner.issues
+    : Array.isArray(outer?.issues)
+      ? outer.issues
+      : [];
   const issueLines = issues
     .map((issue) => {
       if (!issue || typeof issue !== "object") return "";
-      const record = issue as { code?: unknown; message?: unknown; attributeNames?: unknown };
+      const record = issue as { code?: unknown; message?: unknown; attributeNames?: unknown; severity?: unknown };
+      const severity = typeof record.severity === "string" ? `[${record.severity.toUpperCase()}] ` : "";
       const message = typeof record.message === "string" ? record.message.trim() : "";
-      const code = typeof record.code === "string" ? record.code.trim() : "";
+      const code = typeof record.code === "string" ? `Code ${record.code.trim()}: ` : "";
       const attributes = Array.isArray(record.attributeNames)
         ? record.attributeNames.filter((value): value is string => typeof value === "string").join(", ")
         : "";
+      const attrStr = attributes ? `(attribute: ${attributes}) ` : "";
       if (!message && !code) return "";
-      return `• ${attributes ? `${attributes}: ` : ""}${message || code}${code && message ? ` (${code})` : ""}`;
+      return `• ${severity}${code}${attrStr}${message}`.trim();
     })
     .filter(Boolean)
     .slice(0, 20);
