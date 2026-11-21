@@ -74,7 +74,54 @@ export type ShopifyMutationResult = {
   warnings: string[];
 };
 
+export type ShopifyBulkUploadRow = {
+  title: string;
+  description?: string;
+  vendor?: string;
+  productType?: string;
+  tags?: string[];
+  handle?: string;
+  status?: "ACTIVE" | "DRAFT";
+  optionName?: string;
+  optionValue?: string;
+  price?: string;
+  sku?: string;
+  barcode?: string;
+};
+
+export type ShopifyBulkJob = {
+  _id: string;
+  status: "created" | "running" | "completed" | "failed" | "canceled";
+  operationStatus?: string;
+  totalRows: number;
+  processedRows: number;
+  succeededRows: number;
+  failedRows: number;
+  lastError?: string;
+  rows: Array<{ line: number; productId?: string; errors: string[] }>;
+  createdAt: string;
+};
+
 export const shopifyProductsApi = {
+  startBulkUpload(payload: { rows: ShopifyBulkUploadRow[]; publishToOnlineStore: boolean }) {
+    return requestWithAuth<ShopifyBulkJob>("/shopify/bulk-jobs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getBulkJob(jobId: string) {
+    return requestWithAuth<ShopifyBulkJob>(`/shopify/bulk-jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  listBulkJobs() {
+    return requestWithAuth<ShopifyBulkJob[]>("/shopify/bulk-jobs");
+  },
+
+  cancelBulkJob(jobId: string) {
+    return requestWithAuth<ShopifyBulkJob>(`/shopify/bulk-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+  },
+
   createShopifyProduct(payload: ShopifyProductPayload) {
     return requestWithAuth<ShopifyMutationResult>("/shopify/products", {
       method: "POST",
