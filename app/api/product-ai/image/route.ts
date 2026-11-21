@@ -69,7 +69,7 @@ function normalizeRemoteImageUrl(rawUrl: string) {
 function isAllowedRemoteImageUrl(remoteUrl: URL) {
   return (
     remoteUrl.protocol === "https:" &&
-    (remoteUrl.hostname === "amazonaws.com" || remoteUrl.hostname.endsWith(".amazonaws.com"))
+    (remoteUrl.hostname === "amazonaws.com" || remoteUrl.hostname.endsWith(".amazonaws.com") || remoteUrl.hostname === "m.media-amazon.com" || remoteUrl.hostname === "images-na.ssl-images-amazon.com")
   );
 }
 

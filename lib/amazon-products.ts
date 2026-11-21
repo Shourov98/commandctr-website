@@ -47,6 +47,7 @@ export type AmazonCatalogItem = {
   imageUrl?: string;
   images: Array<{ link: string; variant?: string; height?: number; width?: number }>;
   marketplaceId: string;
+  attributes?: Record<string, string>;
 };
 
 export type AmazonRestrictionsCheck = {
@@ -96,6 +97,11 @@ export const amazonProductsApi = {
       conditionType,
     });
     return requestWithAuth<AmazonRestrictionsCheck>(`/amazon/restrictions?${params.toString()}`);
+  },
+
+  researchPricing<T>(asin: string, condition: string, fulfillment: string) {
+    const params = new URLSearchParams({conditionType:condition, fulfillmentChannel:fulfillment});
+    return requestWithAuth<T>(`/amazon/pricing/${encodeURIComponent(asin)}?${params}`);
   },
 
   patchOffer(productId: string, payload: { price?: string; quantity?: number }) {
