@@ -42,8 +42,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
+import AmazonDraftPreview from "./AmazonDraftPreview";
+import AmazonOfferReferences, { type AmazonOfferEvidence } from "./AmazonOfferReferences";
 
 import { ApiClientError, authStorage } from "@/lib/auth";
+import { amazonComparisonOptions, canApplyAmazonPrice, productFact, productImageUrl } from "@/lib/amazon-ai";
 import { ebayApi } from "@/lib/ebay";
 import { prepareProductAiImageUpload } from "@/lib/product-ai-upload";
 import { productsApi, type ProductCreatePayload, type ProductListItem } from "@/lib/products";
@@ -239,7 +242,10 @@ type ApiIntelligence = {
   validation?: unknown;
 };
 
+type ApiIdentityWarning = {code: string; message: string; severity?: string};
+
 type ApiProduct = {
+  warnings?: ApiIdentityWarning[];
   core: ApiCore;
   amazon: ApiAmazon;
   ebay: ApiEbay;
@@ -294,7 +300,9 @@ type ApiSuggestedPriceRange = {
   source: string;
 };
 
-type ApiMarketplacePricingSnapshot = {
+type ApiMarketplacePricingSnapshot = AmazonOfferEvidence & {
+  evidence_warnings?: string[];
+  recommendation_basis?: string;
   marketplace: MarketKey;
   source_mode: string;
   search_queries: string[];
@@ -314,12 +322,14 @@ type ApiMarketplacePricingSnapshot = {
 };
 
 type ApiProductPricingSnapshot = {
+  warnings?: ApiIdentityWarning[];
   product_id: string;
   generated_at: string;
   markets: ApiMarketplacePricingSnapshot[];
 };
 
 type ApiDynamicPricingQueryResponse = {
+  warnings?: ApiIdentityWarning[];
   query: string;
   generated_at: string;
   markets: ApiMarketplacePricingSnapshot[];
@@ -1194,13 +1204,9 @@ function validateAmazonRequiredAttributes(attributes: Record<string, string>, id
   return errors;
 }
 
-function withAmazonUkDefaults(attributes: Record<string, string>, productType: string) {
-  let next = setAmazonAttribute(attributes, "country_of_origin", "GB");
-  const isWaterBottle = /water\s*bottle|^bottle$/i.test(productType.trim());
-  if (isWaterBottle && !amazonAttributeValue(next, "supplier_declared_dg_hz_regulation")) {
-    next = setAmazonAttribute(next, "supplier_declared_dg_hz_regulation", "not_applicable");
-  }
-  return next;
+function withAmazonUkDefaults(attributes: Record<string, string>, _productType: string) {
+  // Selling in the UK does not establish the product's manufacturing origin or safety classification.
+  return { ...attributes };
 }
 
 function sourceAttribute(attributes: Record<string, string>, ...keys: string[]) {
@@ -1209,19 +1215,6 @@ function sourceAttribute(attributes: Record<string, string>, ...keys: string[]) 
     normalisedKeys.includes(key.toLowerCase().replace(/[\s_-]+/g, "")) && value.trim()
   ));
   return match?.[1]?.trim() ?? "";
-}
-
-const amazonGeneratedBrand = "Twinstr";
-const amazonGeneratedManufacturer = "Twinstr Ltd";
-
-function amazonGeneratedModelNumber(product: ApiProduct) {
-  const source = product.core.normalized_title || product.core.product_type || "product";
-  const token = source
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 28);
-  return `TWINSTR-${token || "PRODUCT"}`;
 }
 
 /**
@@ -1251,27 +1244,25 @@ function completeAmazonBlankFields(
 
   putIfBlank(
     "manufacturer",
-    sourceAttribute(core, "manufacturer", "brand", "brand_name") || amazonGeneratedManufacturer,
+    sourceAttribute(core, "manufacturer"),
     (value) => [{ value, language_tag: "en_GB" }],
   );
   putIfBlank(
     "material",
-    sourceAttribute(core, "material", "fabric", "composition")
-      || (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) ? "Stainless Steel" : ""),
+    sourceAttribute(core, "material", "fabric", "composition"),
     (value) => [{ value, language_tag: "en_GB" }],
   );
   putIfBlank(
     "included_components",
-    sourceAttribute(core, "included_components", "package_contents", "in_the_box")
-      || (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) ? "Water Bottle and Lid" : product.core.product_type),
+    sourceAttribute(core, "included_components", "package_contents", "in_the_box"),
     (value) => [{ value, language_tag: "en_GB" }],
   );
   putIfBlank(
     "model_name",
-    sourceAttribute(core, "model_name", "model") || product.core.normalized_title,
+    sourceAttribute(core, "model_name", "model"),
     (value) => [{ value, language_tag: "en_GB" }],
   );
-  putIfBlank("model_number", sourceAttribute(core, "model_number", "model_no", "mpn") || amazonGeneratedModelNumber(product));
+  putIfBlank("model_number", sourceAttribute(core, "model_number", "model_no", "mpn"));
 
   const capacity = sourceAttribute(core, "capacity", "volume", "size");
   const capacityMatch = capacity.match(/(\d+(?:\.\d+)?)\s*(ml|millilit(?:re|er)s?|l|lit(?:re|er)s?|fl\.?\s*oz)/i);
@@ -1283,14 +1274,12 @@ function completeAmazonBlankFields(
         : "fluid_ounces";
     attributes = setAmazonAttribute(attributes, "capacity", capacityMatch[1], (value) => [{ value: Number(value), unit }]);
   }
-  if (/water\s*bottle|^bottle$/i.test(product.core.product_type.trim()) && !amazonAttributeValue(existingAttributes, "capacity") && !amazonAttributeValue(attributes, "capacity")) {
-    attributes = setAmazonAttribute(attributes, "capacity", "500", (value) => [{ value: Number(value), unit: "milliliters" }]);
-  }
 
-  putIfBlank("unit_count", sourceAttribute(core, "unit_count", "item_package_quantity", "pack_count") || "1", (value) => [
+
+  putIfBlank("unit_count", sourceAttribute(core, "unit_count", "item_package_quantity", "pack_count"), (value) => [
     { value: Number(value), type: { value: "count", language_tag: "en_GB" } },
   ]);
-  const price = sourceAttribute(core, "list_price", "price") || publishPrice;
+  const price = publishPrice;
   if (Number(price) > 0) {
     putIfBlank("list_price", price, (value) => [{ value_with_tax: Number(value), currency: "GBP" }]);
   }
@@ -1301,7 +1290,7 @@ function completeAmazonBlankFields(
     ...product,
     amazon: {
       ...product.amazon,
-      structured_attributes: { ...attributes, ...existingAttributes },
+      structured_attributes: { ...attributes, ...Object.fromEntries(Object.entries(existingAttributes).filter(([, value]) => value.trim())) },
     },
   };
 }
@@ -1560,24 +1549,17 @@ function toAttributes(value: string) {
 }
 
 function imageUrlFor(pathValue: string) {
-  if (!pathValue) {
-    return null;
-  }
-
-  if (pathValue.startsWith("http://") || pathValue.startsWith("https://")) {
-    return `/api/product-ai/image?url=${encodeURIComponent(pathValue)}`;
-  }
-
-  return `/api/product-ai/image?path=${encodeURIComponent(pathValue)}`;
+  return productImageUrl(pathValue);
 }
 
 async function fetchSourceImageAsFile(
   pathValue: string,
   fallbackName = "source.png",
   signal?: AbortSignal,
+  productId?: string | null,
 ): Promise<File | null> {
   if (!pathValue) return null;
-  const url = imageUrlFor(pathValue);
+  const url = productImageUrl(pathValue, productId);
   if (!url) return null;
   try {
     const response = await fetch(url, { cache: "no-store", signal });
@@ -1851,6 +1833,7 @@ function researchToPricingSnapshot(
   const generatedAt = new Date().toISOString();
   const markets = marketKeys
     .map((key): ApiMarketplacePricingSnapshot | null => {
+      if (key === "amazon") return null;
       const research = intelligence.research[key];
       if (!research) return null;
 
@@ -2838,6 +2821,8 @@ export default function AddProductEditor({
     initialSourceHint === "shopify" || initialSourceHint === "twinstr" || initialSourceHint === "commandctr" ? initialProductId : null,
   );
   const [importRecordId, setImportRecordId] = useState<string | null>(initialImportRecordId);
+  const [imageRevision, setImageRevision] = useState("");
+  const appliedProductIdRef = useRef<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Choose an image and generate a product draft.");
   const [sourceTitle, setSourceTitle] = useState(emptyProduct.core.source_title);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -2851,10 +2836,13 @@ export default function AddProductEditor({
   const [variantSubmitting, setVariantSubmitting] = useState<MarketActionState>(emptyActionState);
   const [isUploadingSourceImage, setIsUploadingSourceImage] = useState(false);
   const [isRefreshingPricing, setIsRefreshingPricing] = useState(false);
+  const pricingRequestIdRef = useRef(0);
+  const publishPriceRef = useRef("");
   const [publishSubmitting, setPublishSubmitting] = useState<PublishActionState>(emptyPublishState);
   const [publishVendor, setPublishVendor] = useState("");
   const [publishDescription, setPublishDescription] = useState("");
   const [publishPrice, setPublishPrice] = useState("");
+  useEffect(() => { publishPriceRef.current = publishPrice; }, [publishPrice]);
   const [publishSku, setPublishSku] = useState("");
   const [publishStatus, setPublishStatus] = useState<PublishStatus>("ACTIVE");
   const [publishStock, setPublishStock] = useState("0");
@@ -3186,6 +3174,11 @@ export default function AddProductEditor({
   };
 
   function clearPricingSnapshot() {
+    pricingRequestIdRef.current += 1;
+    if (publishPrice && publishPrice === lastAutoPublishPriceRef.current) {
+      lastAutoPublishPriceRef.current = "";
+      updatePublishPrice("", "auto");
+    }
     setPricingSnapshot(null);
     setIsRefreshingPricing(false);
   }
@@ -3207,6 +3200,7 @@ export default function AddProductEditor({
     if (source === "manual" && value.trim() !== lastAutoPublishPriceRef.current) {
       lastAutoPublishPriceRef.current = "";
     }
+    publishPriceRef.current = value;
     setPublishPrice(value);
     setDraft((prev) => {
       const nextAttributes = { ...prev.core.attributes };
@@ -3229,8 +3223,13 @@ export default function AddProductEditor({
     }
   }
 
+  function imageUrlFor(pathValue: string) {
+    const url = productImageUrl(pathValue, productId);
+    return url && imageRevision ? `${url}&v=${encodeURIComponent(imageRevision)}` : url;
+  }
+
   function syncPublishPriceFromPricing(pricing: ApiProductPricingSnapshot["markets"][number] | null | undefined) {
-    if (!pricing) {
+    if (!pricing || (activeMarket === "amazon" && !canApplyAmazonPrice(pricing))) {
       return false;
     }
 
@@ -3245,7 +3244,7 @@ export default function AddProductEditor({
     }
 
     const nextFormattedPrice = nextRecommendedPrice.toFixed(2);
-    const currentTrimmedPrice = publishPrice.trim();
+    const currentTrimmedPrice = publishPriceRef.current.trim();
     if (currentTrimmedPrice && currentTrimmedPrice !== lastAutoPublishPriceRef.current) {
       return false;
     }
@@ -3315,6 +3314,36 @@ export default function AddProductEditor({
   }
 
   async function fetchQueryBasedPricing(marketplace: MarketKey) {
+    if (marketplace === "amazon") {
+      let market: ApiMarketplacePricingSnapshot;
+      let warnings: ApiIdentityWarning[] = [];
+      if (amazonIdentifierMode === "asin") {
+        const asin = amazonExistingAsin.trim().toUpperCase();
+        if (!amazonCatalogItem || amazonCatalogItem.asin !== asin) {
+          throw new Error("Verify the current Amazon UK ASIN before researching prices.");
+        }
+        market = await amazonProductsApi.researchPricing<ApiMarketplacePricingSnapshot>(
+          asin, amazonOfferCondition, amazonFulfillmentChannel);
+      } else {
+        const options = amazonComparisonOptions(draft.core.attributes, draft.amazon.structured_attributes, "new_new");
+        const query = sourceTitle.trim() || draft.amazon.title || draft.core.normalized_title;
+        if (!query) throw new Error("Provide a product title before researching prices.");
+        const response = await fetch("/api/product-ai/pricing/query/text", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({product_name:query, marketplace:"amazon", ...options}),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => null);
+          throw new Error(typeof error?.detail === "string" ? error.detail : "Amazon UK pricing research failed.");
+        }
+        const result = await response.json() as ApiDynamicPricingQueryResponse;
+        const selected = result.markets.find((entry) => entry.marketplace === "amazon");
+        if (!selected || selected.currency !== "GBP") throw new Error("Pricing did not return Amazon UK GBP evidence.");
+        market = selected;
+        warnings = result.warnings || [];
+      }
+      return {product_id:productId || "query", generated_at:new Date().toISOString(), markets:[market], warnings} satisfies ApiProductPricingSnapshot;
+    }
     const queryText = buildQueryPricingText();
     if (!queryText) {
       return null;
@@ -3380,7 +3409,7 @@ export default function AddProductEditor({
   }
 
   useEffect(() => {
-    if (!productId || isLoadingProduct || isRefreshingPricing) {
+    if (activeMarket === "amazon" || !productId || isLoadingProduct || isRefreshingPricing) {
       return;
     }
     if (publishPrice.trim()) {
@@ -3400,7 +3429,7 @@ export default function AddProductEditor({
   }, [productId, isLoadingProduct, isRefreshingPricing, pricingSnapshot, publishPrice, activeMarket]);
 
   useEffect(() => {
-    if (isRefreshingPricing || !pricingSnapshot) {
+    if (activeMarket === "amazon" || isRefreshingPricing || !pricingSnapshot) {
       return;
     }
 
@@ -4085,14 +4114,12 @@ export default function AddProductEditor({
   }
 
   function applyRecord(record: ApiRecord, message: string, preserveAmazonFields = false) {
+    const sameProduct = appliedProductIdRef.current === record.id;
+    appliedProductIdRef.current = record.id;
     setProductId(record.id);
+    setImageRevision(record.updated_at);
+    // The saved response is authoritative: a pending image must not inherit an old draft's path.
     const mergedImages = { ...record.product.images };
-    const keys: ImageCardKey[] = ["source", "transparent_cutout", "amazon", "ebay", "etsy", "tiktok", "shopify"];
-    keys.forEach((k) => {
-      if (!mergedImages[k]?.absolute_path && draft.images[k]?.absolute_path) {
-        mergedImages[k] = draft.images[k];
-      }
-    });
     // Ensure the Shopify inventory table always has at least one editable location
     // row. Saved drafts can come back with empty/undefined stock_locations, which
     // renders an empty table with no quantity field to edit. Seed a default
@@ -4117,17 +4144,27 @@ export default function AddProductEditor({
     );
     setVariantsByMarket(record.variants);
     setSourceTitle(record.product.core.source_title);
-    setPublishVendor((current) => current || record.product.core.attributes.brand || amazonGeneratedBrand);
-    setPublishPrice((current) => current || record.product.core.attributes.price || "");
-    setPublishDescription((current) => current || record.product.shopify.body_html || record.product.core.product_summary || "");
-    setPublishSku((current) => current || record.id.slice(0, 12).toUpperCase());
+    const recordVendor = record.product.core.attributes.brand || "";
+    const recordPrice = (activeMarket === "amazon" ? "" : record.product.core.attributes.price) || "";
+    const recordDescription = (activeMarket === "amazon" ? record.product.amazon.description : record.product.shopify.body_html)
+      || record.product.core.product_summary || "";
+    const recordSku = record.id.slice(0, 12).toUpperCase();
+    setPublishVendor((current) => sameProduct ? current || recordVendor : recordVendor);
+    setPublishPrice((current) => sameProduct ? current || recordPrice : recordPrice);
+    setPublishDescription((current) => sameProduct ? current || recordDescription : recordDescription);
+    setPublishSku((current) => sameProduct ? current || recordSku : recordSku);
+    if (!sameProduct) {
+      publishPriceRef.current = recordPrice;
+      lastAutoPublishPriceRef.current = "";
+      setPublishStock("0");
+    }
     clearPricingSnapshot();
 
     // Set lastSavedDraftRef signature to match this active record apply state!
-    const finalVendor = publishVendor || record.product.core.attributes.brand || "";
-    const finalPrice = publishPrice || record.product.core.attributes.price || "";
-    const finalDescription = publishDescription || record.product.shopify.body_html || record.product.core.product_summary || "";
-    const finalSku = publishSku || record.id.slice(0, 12).toUpperCase();
+    const finalVendor = sameProduct ? publishVendor || recordVendor : recordVendor;
+    const finalPrice = sameProduct ? publishPrice || recordPrice : recordPrice;
+    const finalDescription = sameProduct ? publishDescription || recordDescription : recordDescription;
+    const finalSku = sameProduct ? publishSku || recordSku : recordSku;
 
     const savedSnapshot: SavedDraftSnapshot = {
       draft: mergedProduct,
@@ -4143,7 +4180,7 @@ export default function AddProductEditor({
       publishPrice: finalPrice,
       publishSku: finalSku,
       publishStatus: publishStatus,
-      publishStock: publishStock,
+      publishStock: sameProduct ? publishStock : "0",
       publishOnOnlineStore: publishOnOnlineStore,
       publishTrackInventory: publishTrackInventory,
       savedAt: new Date().toISOString(),
@@ -4170,7 +4207,7 @@ export default function AddProductEditor({
     setVariantsByMarket(record.variants);
     setSourceTitle(record.product.core.source_title);
     setPublishVendor((current) => current || record.product.core.attributes.brand || "");
-    setPublishPrice((current) => current || record.product.core.attributes.price || "");
+    setPublishPrice((current) => current || (activeMarket === "amazon" ? "" : record.product.core.attributes.price) || "");
     setPublishDescription((current) => current || record.product.shopify.body_html || record.product.core.product_summary || "");
     setPublishSku((current) => current || record.id.slice(0, 12).toUpperCase());
     clearPricingSnapshot();
@@ -4204,7 +4241,7 @@ export default function AddProductEditor({
     }
     setSourceTitle((current) => current || merged.core.source_title);
     setPublishVendor((current) => current || merged.core.attributes.brand || "");
-    setPublishPrice((current) => current || merged.core.attributes.price || "");
+    setPublishPrice((current) => current || (activeMarket === "amazon" ? "" : merged.core.attributes.price) || "");
     setPublishDescription(
       (current) =>
         current ||
@@ -4949,18 +4986,19 @@ export default function AddProductEditor({
       }
       setAmazonCatalogItem(item);
       setAmazonRestrictions(restr);
-      if (item.title && !draft.amazon.title) {
-        setDraft((prev) => ({
-          ...prev,
-          amazon: { ...prev.amazon, title: item.title },
-        }));
-      }
-      if (item.brand && !publishVendor) {
-        setPublishVendor(item.brand);
-      }
+      clearPricingSnapshot();
+      setSourceTitle(item.title);
+      setDraft((prev) => ({
+        ...prev,
+        core:{...prev.core, source_title:item.title, normalized_title:item.title,
+          attributes:{...prev.core.attributes, brand:item.brand || "", color:item.color || "", ...(item.attributes || {})}},
+        amazon:{...prev.amazon, title:item.title,
+          structured_attributes:{...prev.amazon.structured_attributes, ...(item.attributes || {})}},
+      }));
+      if (item.brand) setPublishVendor(item.brand);
       const statusText = restr.restricted
         ? `Amazon UK product verified: "${item.title}". Note: Listing is restricted for your seller account.`
-        : `Amazon UK product verified: "${item.title}". You are eligible to sell as New.`;
+        : `Amazon UK product verified: "${item.title}". No restriction was returned for the selected condition; confirm eligibility before submission.`;
       setStatusMessage(statusText);
       setShopifyPublishMessage(statusText);
     } catch (error: unknown) {
@@ -4996,6 +5034,10 @@ export default function AddProductEditor({
 
   async function handleValidateAmazonOffer() {
     const isAsinMode = amazonIdentifierMode === "asin";
+    if (!isAsinMode && (!draft.images.amazon.validation?.passed || !draft.images.amazon.absolute_path.startsWith("https://"))) {
+      setStatusMessage("Generate a valid Amazon main image and configure public HTTPS image storage before validation.");
+      return;
+    }
     const sku = publishSku.trim();
     const normalizedPrice = getSanitizedPublishPrice();
     const stock = getSanitizedPublishStock();
@@ -5006,7 +5048,7 @@ export default function AddProductEditor({
         setStatusMessage("Enter a valid 10-character Amazon ASIN before validating.");
         return;
       }
-      if (!amazonCatalogItem) {
+      if (!amazonCatalogItem || amazonCatalogItem.asin !== asin) {
         setStatusMessage("Please click 'Verify Product' to check catalogue details and seller eligibility first.");
         return;
       }
@@ -5077,6 +5119,11 @@ export default function AddProductEditor({
     setShopifyPublishMessage("");
 
     const missingFields: string[] = [];
+    if (isAsinMode && amazonCatalogItem?.asin !== amazonExistingAsin.trim().toUpperCase()) missingFields.push("Verified current ASIN");
+    if (isAsinMode && !amazonRestrictions?.eligible) missingFields.push("Seller eligibility for the current ASIN and condition");
+    if (!isAsinMode && (!draft.images.amazon.validation?.passed || !draft.images.amazon.absolute_path.startsWith("https://"))) {
+      missingFields.push("Validated Amazon main image with a public HTTPS storage URL");
+    }
     if (!title && !isAsinMode) missingFields.push("Product title");
     if (!sku) missingFields.push("SKU");
     if (!normalizedPrice) missingFields.push("Default price");
@@ -5456,7 +5503,7 @@ export default function AddProductEditor({
       // the original source image remains in the saved draft. Reuse it so the
       // global Generate AI button can be used repeatedly without re-uploading.
       const sourcePath = draft.images.source?.absolute_path || draft.images.source?.relative_path || "";
-      finalImage = finalImage || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal);
+      finalImage = finalImage || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal, productId);
       if (controller.signal.aborted) {
         return false;
       }
@@ -5494,7 +5541,7 @@ export default function AddProductEditor({
       clearSelectedImageSelection();
       // Restore eBay/Etsy generation when those channels go live again:
       // await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "ebay", "etsy", "tiktok", "shopify"], successMessage);
-      await generateMarketplaceSectionsInParallel(generatedProductId, ["amazon", "tiktok", "shopify"], successMessage, controller.signal);
+      await generateMarketplaceSectionsInParallel(generatedProductId, (activeMarket === "amazon" ? ["amazon"] : ["amazon", "tiktok", "shopify"]), successMessage, controller.signal);
       return true;
     } catch (error) {
       if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
@@ -5572,7 +5619,7 @@ export default function AddProductEditor({
       // local image proxy and turn it into a File for the multipart upload.
       const sourcePath = draft.images.source?.absolute_path || "";
       const sourceImageFile = sourcePath
-        ? await fetchSourceImageAsFile(sourcePath, "imported_source.png")
+        ? await fetchSourceImageAsFile(sourcePath, "imported_source.png", undefined, productId)
         : null;
 
       if (!sourceImageFile) {
@@ -5625,7 +5672,7 @@ export default function AddProductEditor({
       // image so Text Only can be used repeatedly on the same product.
       const sourcePath = draft.images.source?.absolute_path || draft.images.source?.relative_path || "";
       const sourceImageFile = selectedImage
-        || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal);
+        || await fetchSourceImageAsFile(sourcePath, "saved_source.png", controller.signal, productId);
       if (controller.signal.aborted) {
         return;
       }
@@ -6005,6 +6052,25 @@ export default function AddProductEditor({
 
 
   async function analyzeDynamicPricing() {
+    if (activeMarket === "amazon") {
+      const requestId = ++pricingRequestIdRef.current;
+      setIsRefreshingPricing(true);
+      setPricingSnapshot(null);
+      try {
+        const snapshot = await fetchQueryBasedPricing("amazon");
+        if (requestId !== pricingRequestIdRef.current) return;
+        if (snapshot) {
+          setPricingSnapshot(snapshot);
+          syncPublishPriceFromPricing(snapshot.markets[0]);
+          setStatusMessage(snapshot.markets[0].analysis_summary || "Amazon UK offer research completed.");
+        }
+      } catch (error) {
+        if (requestId === pricingRequestIdRef.current) setStatusMessage(error instanceof Error ? error.message : "Amazon UK pricing research failed.");
+      } finally {
+        if (requestId === pricingRequestIdRef.current) setIsRefreshingPricing(false);
+      }
+      return;
+    }
     if (!productId) {
       setStatusMessage("Generate a product before running dynamic pricing analysis.");
       return;
@@ -6240,22 +6306,49 @@ export default function AddProductEditor({
   }
 
   async function uploadProductSourceImage() {
-    if (!selectedImage) {
-      setStatusMessage("Choose a source image first.");
+    if (isImportMode) {
+      if (!selectedImage) {
+        setStatusMessage("Choose a source image first.");
+        return;
+      }
+      await uploadSelectedSourceImage(selectedImage, "Source image uploaded to the import record.");
       return;
     }
 
-    if (!productId) {
-      setStatusMessage("Single-market generation is not available before the first AI draft exists. Click Generate AI once, then generate each marketplace separately.");
-      return;
+    const suppliedTitle = sourceTitle.trim();
+    const sourcePath = draft.images.source?.absolute_path || draft.images.source?.relative_path || "";
+    setIsUploadingSourceImage(true);
+    setStatusMessage("Removing the background from the source image...");
+    try {
+      const file = selectedImage || await fetchSourceImageAsFile(sourcePath, "saved_source.png", undefined, productId);
+      if (!file) throw new Error("Choose a source image first.");
+      const formData = new FormData();
+      formData.append("image", file);
+      if (!productId && suppliedTitle) formData.append("title", suppliedTitle);
+      const response = await fetch(productId
+        ? `/api/product-ai/products/${productId}/source-image`
+        : "/api/product-ai/products/cutout", {
+          method: "POST",
+          body: formData,
+        });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Background removal failed.");
+      }
+      const record = await response.json() as ApiRecord;
+      const cutout = record.product.images.transparent_cutout;
+      const passed = Boolean(cutout?.validation?.passed && (cutout.absolute_path || cutout.relative_path));
+      applyRecord(record, passed
+        ? "Transparent cutout created. Product text and Amazon main image can be generated separately."
+        : `Source image saved, but background removal failed. ${cutout?.validation?.errors?.join(" ") || "The provider did not return a valid transparent image."}`);
+      // A placeholder record title is not a merchant-supplied product title.
+      if (!suppliedTitle) setSourceTitle("");
+      if (passed) clearSelectedImageSelection();
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Background removal failed.");
+    } finally {
+      setIsUploadingSourceImage(false);
     }
-
-    await uploadSelectedSourceImage(
-      selectedImage,
-      isImportMode
-        ? "Source image uploaded to the import record."
-        : "Source image uploaded. Transparent cutout was refreshed and marketplace images are ready for on-demand generation.",
-    );
   }
 
   function formatBytes(bytes?: number) {
@@ -6418,7 +6511,7 @@ export default function AddProductEditor({
         let latestRecord: ImportApiRecord | null = null;
         // Restore eBay/Etsy image generation when those channels go live again:
         // for (const market of ["amazon", "ebay", "etsy", "tiktok", "shopify"] as MarketKey[]) {
-        for (const market of ["amazon", "tiktok", "shopify"] as MarketKey[]) {
+        for (const market of (activeMarket === "amazon" ? ["amazon"] : ["amazon", "tiktok", "shopify"]) as MarketKey[]) {
           const response = await fetch(`/api/product-ai/imports/products/${currentImportRecordId}/marketplaces/${market}/regenerate`, {
             method: "POST",
           });
@@ -6465,7 +6558,7 @@ export default function AddProductEditor({
       productId,
       // Restore eBay/Etsy generation when those channels go live again:
       // ["amazon", "ebay", "etsy", "tiktok", "shopify"],
-      ["amazon", "tiktok", "shopify"],
+      (activeMarket === "amazon" ? ["amazon"] : ["amazon", "tiktok", "shopify"]),
       "All marketplace content and image generations complete.",
     );
   }
@@ -7101,6 +7194,85 @@ export default function AddProductEditor({
                       </div>
                     </div>
 
+
+                    <section className="rounded-2xl border border-[#dbe2ee] bg-white p-4 space-y-3">
+                      <h3 className="text-sm font-semibold text-[#172544]">Amazon UK product identity and pricing</h3>
+                      <p className="text-xs text-[#667a99]">
+                        Verify the exact ASIN for existing catalogue offers. For a new product, provide its real model or manufacturer part number. Seller SKU is your internal stock reference.
+                      </p>
+                      {amazonIdentifierMode !== "asin" ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            ["model_number", "Real model number"],
+                            ["manufacturer_part_number", "Manufacturer part number / style code"],
+                            ["size", "Exact variant size (if applicable)"],
+                            ["color", "Exact variant colour (if applicable)"],
+                            ["pack_count", "Pack quantity"],
+                          ].map(([key, label]) => (
+                            <EditableField key={key} label={label}
+                              value={productFact(draft.amazon.structured_attributes, key) || productFact(draft.core.attributes, key)}
+                              onChange={(value) => {
+                                setDraft((current) => ({...current, core:{...current.core, attributes:{...current.core.attributes, [key]:value}},
+                                  amazon:{...current.amazon, structured_attributes:{...current.amazon.structured_attributes, [key]:value}}}));
+                                clearPricingSnapshot();
+                              }} />
+                          ))}
+                          <label className="text-xs font-semibold text-[#667a99]">
+                            Size system
+                            <select className="mt-2 w-full rounded-lg border border-[#d4ddec] p-2"
+                              value={productFact(draft.core.attributes, "size_system")}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setDraft((current) => ({...current, core:{...current.core, attributes:{...current.core.attributes, size_system:value}}}));
+                                clearPricingSnapshot();
+                              }}>
+                              <option value="">Choose when size is supplied</option>
+                              {["UK", "EU", "US", "INT"].map((system) => <option key={system}>{system}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
+                      <div role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900">
+                        {amazonIdentifierMode === "asin"
+                          ? (amazonCatalogItem?.asin === amazonExistingAsin.trim().toUpperCase()
+                              ? "Catalogue identity verified. Confirm that your physical product is the same variant and condition."
+                              : "Verify the ASIN before accepting a competitive price.")
+                          : "AI details are a draft. Review the model, brand, variant, barcode, origin and safety declarations before submission."}
+                        {draft.warnings?.filter((warning) => warning.code !== "MODEL_OR_SKU_MISSING" || !(productFact(draft.amazon.structured_attributes, "model_number", "manufacturer_part_number") || productFact(draft.core.attributes, "model_number", "model", "mpn", "style_code"))).map((warning) => <p key={warning.code} className="mt-1">{warning.message}</p>)}
+                      </div>
+                      <button type="button" onClick={() => void analyzeDynamicPricing()} disabled={isRefreshingPricing}
+                        className="rounded-lg bg-[#172544] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                        {isRefreshingPricing ? "Researching Amazon UK offers..." : "Research GBP price"}
+                      </button>
+                      {pricingSnapshot?.markets.find((market) => market.marketplace === "amazon") ? (() => {
+                        const market = pricingSnapshot.markets.find((entry) => entry.marketplace === "amazon")!;
+                        return <div className="space-y-2 text-xs text-[#31415e]">
+                          <p>{market.analysis_summary}</p>
+                          <p className="font-semibold">{canApplyAmazonPrice(market)
+                            ? `Suggested item price: £${market.recommended_price!.toFixed(2)} · ${market.comparable_count} matching offers`
+                            : "No reliable GBP recommendation. Enter a reviewed price manually or correct the comparison details."}</p>
+                          {canApplyAmazonPrice(market) ? <button type="button"
+                            className="rounded-lg border border-[#d4ddec] px-3 py-2 font-semibold"
+                            onClick={() => {
+                              const price = market.recommended_price!.toFixed(2);
+                              lastAutoPublishPriceRef.current = price;
+                              updatePublishPrice(price, "auto");
+                            }}>Use suggested GBP price</button> : null}
+                          <AmazonOfferReferences pricing={market} />
+                          {market.evidence_warnings?.map((warning) => <p key={warning} className="text-amber-800">{warning}</p>)}
+                          {pricingSnapshot.warnings?.map((warning) => <p key={warning.code} className="text-amber-800">{warning.message}</p>)}
+                          {market.similar_listings.slice(0, 5).map((listing, index) => (
+                            <p key={index}><a href={listing.url || undefined} target="_blank" rel="noreferrer" className="underline">
+                              {listing.source}: {listing.title}
+                            </a> · {formatPriceValue(listing.price, listing.currency)}</p>
+                          ))}
+                        </div>;
+                      })() : null}
+                      <p className="text-xs text-[#667a99]">Unknown identifiers, stock, origin and compliance facts need seller confirmation. Existing-ASIN offers use Amazon catalogue content; an offer does not replace its catalogue image.</p>
+                    </section>
+
+                    {amazonIdentifierMode === "asin" ? <AmazonDraftPreview amazon={draft.amazon} /> : null}
+
                     {/* Listing Mode Selection: 3 Options */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-[#8093b2]">
@@ -7112,6 +7284,7 @@ export default function AddProductEditor({
                           type="button"
                           onClick={() => {
                             setAmazonIdentifierMode("asin");
+                            clearPricingSnapshot();
                             setAmazonValidationResult(null);
                           }}
                           className={`rounded-2xl border p-4 text-left transition-all cursor-pointer ${
@@ -7141,6 +7314,7 @@ export default function AddProductEditor({
                           type="button"
                           onClick={() => {
                             setAmazonIdentifierMode("gtin");
+                            clearPricingSnapshot();
                             setAmazonValidationResult(null);
                           }}
                           className={`rounded-2xl border p-4 text-left transition-all cursor-pointer ${
@@ -7170,6 +7344,7 @@ export default function AddProductEditor({
                           type="button"
                           onClick={() => {
                             setAmazonIdentifierMode("no_identifier");
+                            clearPricingSnapshot();
                             setAmazonValidationResult(null);
                           }}
                           className={`rounded-2xl border p-4 text-left transition-all cursor-pointer ${
@@ -7212,6 +7387,7 @@ export default function AddProductEditor({
                               type="button"
                               onClick={() => {
                                 setAmazonExistingAsin("B09TDW5M2C");
+                                clearPricingSnapshot();
                                 setAmazonCatalogItem(null);
                                 setAmazonRestrictions(null);
                                 setAmazonValidationResult(null);
@@ -7232,6 +7408,7 @@ export default function AddProductEditor({
                               onChange={(event) => {
                                 const nextVal = event.target.value.toUpperCase().slice(0, 10);
                                 setAmazonExistingAsin(nextVal);
+                                clearPricingSnapshot();
                                 if (amazonCatalogItem || amazonRestrictions || amazonValidationResult || asinVerificationError) {
                                   setAmazonCatalogItem(null);
                                   setAmazonRestrictions(null);
@@ -7334,18 +7511,12 @@ export default function AddProductEditor({
                               <select
                                 className="mt-2 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
                                 value={amazonOfferCondition}
-                                onChange={async (e) => {
-                                  const nextCondition = e.target.value;
-                                  setAmazonOfferCondition(nextCondition);
+                                onChange={(event) => {
+                                  setAmazonOfferCondition(event.target.value);
+                                  setAmazonCatalogItem(null);
+                                  setAmazonRestrictions(null);
                                   setAmazonValidationResult(null);
-                                  if (amazonCatalogItem && amazonExistingAsin.trim().length === 10) {
-                                    try {
-                                      const restr = await amazonProductsApi.checkRestrictions(amazonExistingAsin.trim().toUpperCase(), nextCondition);
-                                      setAmazonRestrictions(restr);
-                                    } catch {
-                                      // retain existing check
-                                    }
-                                  }
+                                  clearPricingSnapshot();
                                 }}
                               >
                                 <option value="new_new">New (new_new)</option>
@@ -7363,7 +7534,7 @@ export default function AddProductEditor({
                               <select
                                 className="mt-2 h-10 w-full rounded-lg border border-[#d4ddec] bg-white px-3 text-sm outline-none focus:border-[#2b7cf5]"
                                 value={amazonFulfillmentChannel}
-                                onChange={(e) => setAmazonFulfillmentChannel(e.target.value)}
+                                onChange={(e) => { setAmazonFulfillmentChannel(e.target.value); clearPricingSnapshot(); }}
                               >
                                 <option value="DEFAULT">Merchant Fulfilled / FBM (DEFAULT)</option>
                               </select>
@@ -7380,7 +7551,7 @@ export default function AddProductEditor({
                               </div>
                               <div className="rounded-lg bg-[#f8fbff] p-2.5 border border-[#e2e8f0]">
                                 <span className="block text-[10px] font-semibold text-[#8093b2] uppercase">Price (GBP)</span>
-                                <span className="block mt-0.5 text-xs font-bold text-emerald-700">£{publishPrice || "0.00"}</span>
+                                <span className="block mt-0.5 text-xs font-bold text-emerald-700">{publishPrice ? `£${publishPrice}` : "Not set"}</span>
                               </div>
                               <div className="rounded-lg bg-[#f8fbff] p-2.5 border border-[#e2e8f0]">
                                 <span className="block text-[10px] font-semibold text-[#8093b2] uppercase">FBM Stock</span>
@@ -9727,6 +9898,7 @@ export default function AddProductEditor({
 
                         {/* Numeric Input */}
                         <input
+                          aria-label={activeMarket === "amazon" ? "Amazon UK selling price" : "Selling price"}
                           className="h-full flex-1 bg-transparent pl-1 pr-3 text-center text-xs font-semibold text-[#31415e] outline-none"
                           onChange={(event) => {
                             const val = event.target.value.replace(/[^0-9.]/g, "");
@@ -10050,19 +10222,29 @@ export default function AddProductEditor({
                                 Recommended: {formatPriceValue(activeMarketPricing.suggested_price_range.recommended, activeMarketPricing.suggested_price_range.currency)}
                               </p>
                             </>
+                          ) : activeMarketPricing.reference_price_range ? (
+                            <>
+                              <p className="mt-2 text-sm font-semibold text-[#31415e]">
+                                {formatPriceValue(activeMarketPricing.reference_price_range.minimum, activeMarketPricing.reference_price_range.currency)}
+                                {activeMarketPricing.reference_price_range.maximum !== activeMarketPricing.reference_price_range.minimum
+                                  ? ` – ${formatPriceValue(activeMarketPricing.reference_price_range.maximum, activeMarketPricing.reference_price_range.currency)}` : ""}
+                              </p>
+                              <p className="mt-1 text-xs text-[#8ea0bf]">Observed competitor total, including reported delivery. A selling-price recommendation is unavailable.</p>
+                            </>
                           ) : (
-                            <p className="mt-2 text-sm font-semibold text-[#31415e]">Range not available yet</p>
+                            <p className="mt-2 text-sm font-semibold text-[#31415e]">No price observations returned yet</p>
                           )}
                           <p className="mt-3 text-xs text-[#8ea0bf]">
                             Search: {activeMarketPricing.search_queries[0] ?? "No search query recorded"}
                           </p>
                           <p className="mt-1 text-xs text-[#8ea0bf]">
-                            Source: {getPricingModeLabel(activeMarketPricing.source_mode)}
+                            Source: {activeMarketPricing.reference_offers ? "Amazon SP-API offers" : getPricingModeLabel(activeMarketPricing.source_mode)}
                             {activeMarketPricing.comparable_count ? ` • ${activeMarketPricing.comparable_count} comparable listings` : ""}
                           </p>
                         </button>
                       </div>
                     ) : null}
+                    {activeMarketPricing?.marketplace === "amazon" ? <AmazonOfferReferences pricing={activeMarketPricing} /> : null}
                   </>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-[#dbe2ee] bg-white px-4 py-4 text-sm leading-6 text-[#667a99]">
@@ -10504,7 +10686,7 @@ export default function AddProductEditor({
               {/* Reusable Platform Cards */}
               <div className="mt-5 space-y-5">
                 {imageCards
-                  .filter(({ key }) => selectedFilterKey === "all" || key === selectedFilterKey)
+                  .filter(({ key }) => (activeMarket !== "amazon" || ["source", "transparent_cutout", "amazon"].includes(key)) && (selectedFilterKey === "all" || key === selectedFilterKey))
                   .map(({ key, label, image, note }) => {
                     const hasPath = Boolean(image?.absolute_path || image?.relative_path);
                     const isUploading = Boolean(imageUploadingMap[key]);
@@ -10529,6 +10711,9 @@ export default function AddProductEditor({
                     } else if (isGeneratingThis) {
                       statusText = "Generating...";
                       badgeStyles = "bg-purple-50 text-purple-600 border-purple-200 animate-pulse";
+                    } else if (image?.generation_mode === "cutout_failed") {
+                      statusText = "Failed";
+                      badgeStyles = "bg-rose-50 text-rose-700 border-rose-200";
                     } else if (hasPath) {
                       if (validationErrors.length > 0) {
                         statusText = "Failed";
@@ -10599,7 +10784,7 @@ export default function AddProductEditor({
                                 alt={label}
                                 backgroundLabel={image?.validation?.expected_background ?? "Image"}
                                 image={image}
-                                previewSrc={null}
+                                previewSrc={imageUrlFor(image?.absolute_path || image?.relative_path || "")}
                               />
                             </div>
                           ) : key === "source" && selectedImagePreviewUrl ? (
