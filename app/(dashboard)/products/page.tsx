@@ -11,6 +11,7 @@ import {
   Filter,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   X,
@@ -143,6 +144,10 @@ export default function ProductsPage() {
   const changePage = useProductsPageStore((state) => state.changePage);
   const updateShopifyPriceDraft = useProductsPageStore((state) => state.updateShopifyPriceDraft);
   const saveShopifyPrice = useProductsPageStore((state) => state.saveShopifyPrice);
+  const updateAmazonPriceDraft = useProductsPageStore((state) => state.updateAmazonPriceDraft);
+  const saveAmazonPrice = useProductsPageStore((state) => state.saveAmazonPrice);
+  const syncAmazonListing = useProductsPageStore((state) => state.syncAmazonListing);
+  const syncAmazonListings = useProductsPageStore((state) => state.syncAmazonListings);
   const updateStockDraft = useProductsPageStore((state) => state.updateStockDraft);
   const saveStock = useProductsPageStore((state) => state.saveStock);
   const deleteProduct = useProductsPageStore((state) => state.deleteProduct);
@@ -191,7 +196,7 @@ export default function ProductsPage() {
       const shopifyActive = product.source === "shopify" && product.status.toUpperCase() === "ACTIVE";
       const amazonActive =
         product.source === "amazon" &&
-        ["ACCEPTED", "ACTIVE", "LIVE"].includes((product.amazonStatus ?? product.status ?? "").toUpperCase());
+        ["ACTIVE", "LIVE"].includes((product.amazonStatus ?? product.status ?? "").toUpperCase());
       return shopifyActive || amazonActive;
     }).length;
     // Restore this metric when eBay listings go live again:
@@ -358,6 +363,14 @@ export default function ProductsPage() {
               {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
               {isImporting ? "Importing..." : "Import Shopify"}
             </button>
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#f4c56a] bg-[#fff8e7] px-5 text-sm font-semibold text-[#9a5b00] transition hover:bg-[#ffefc7]"
+              onClick={() => void syncAmazonListings()}
+              type="button"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Sync Amazon
+            </button>
             <Link
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#172544] px-5 text-sm font-semibold text-white transition hover:bg-[#101e3b]"
               href="/products/add"
@@ -397,7 +410,7 @@ export default function ProductsPage() {
                   </th>
                   <th className="w-[170px] bg-[#f8a100] px-4 py-4">
                     <p className="text-sm normal-case leading-none text-white">a Amazon</p>
-                    <p className="mt-1 text-[11px] normal-case text-white">Price + Shipping</p>
+                    <p className="mt-1 text-[11px] normal-case text-white">Your Offer Price</p>
                   </th>
                   <th className="w-[170px] bg-[#0b72de] px-4 py-4">
                     <p className="text-sm normal-case leading-none text-white">eb eBay</p>
@@ -464,7 +477,7 @@ export default function ProductsPage() {
                           </p>
                         </td>
                         <td className="px-4 py-4">
-                          {canEdit && product.source === "shopify" ? (
+                          {canEdit && (product.source === "shopify" || (product.source === "amazon" && (product.amazonFulfillmentChannel ?? "DEFAULT").toUpperCase() === "DEFAULT")) ? (
                               <input
                                 className="h-8 w-[84px] rounded-lg border border-[#cfd8e7] bg-white px-2 text-center text-sm text-[#3f4d65] outline-none transition focus:border-[#90a5cd]"
                                 min={0}
@@ -525,13 +538,28 @@ export default function ProductsPage() {
                         <td className="border-l border-[#ffe0bc] px-4 py-4 text-center">
                           {product.amazonSku || product.amazonStatus || product.amazonPrice ? (
                             <>
-                              <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
-                                {product.amazonPrice ? toCurrencyValue(product.amazonPrice) : "--"}
+                              <div className="relative mx-auto w-[112px]">
+                                {canEdit && product.source === "amazon" ? (
+                                  <>
+                                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#95a1b8]">£</span>
+                                    <input
+                                      className="h-8 w-full rounded-lg border border-[#cfd8e7] bg-white py-1 pl-6 pr-2 text-center text-sm text-[#3f4d65] outline-none transition focus:border-[#90a5cd]"
+                                      onBlur={() => void saveAmazonPrice(product)}
+                                      onChange={(event) => updateAmazonPriceDraft(product.id, event.target.value)}
+                                      type="text"
+                                      value={product.amazonPrice ?? ""}
+                                    />
+                                  </>
+                                ) : (
+                                  <div className="mx-auto flex h-8 w-full items-center justify-center rounded-lg px-2 text-sm text-[#3f4d65]">
+                                    {product.amazonPrice ? toCurrencyValue(product.amazonPrice) : "--"}
+                                  </div>
+                                )}
                               </div>
                               <div className="mt-1 flex items-center justify-center gap-1.5">
                                 <span
                                   className={`h-2 w-2 rounded-full ${
-                                    (product.amazonStatus || "").toUpperCase() === "ACCEPTED" || (product.amazonStatus || "").toUpperCase() === "ACTIVE"
+                                    (product.amazonStatus || "").toUpperCase() === "ACTIVE"
                                       ? "bg-emerald-500"
                                       : "bg-amber-500"
                                   }`}
@@ -552,6 +580,22 @@ export default function ProductsPage() {
                                   )}
                                 </span>
                               </div>
+                              {product.source === "amazon" ? (
+                                <>
+                                  <button
+                                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#9a5b00] hover:text-[#6f4100]"
+                                    onClick={() => void syncAmazonListing(product)}
+                                    type="button"
+                                  >
+                                    <RefreshCw className="h-3 w-3" /> Sync offer
+                                  </button>
+                                  <p className="mt-1 text-[10px] text-[#7d89a2]">
+                                    {product.amazonLastSyncAt ? `Synced ${new Date(product.amazonLastSyncAt).toLocaleString()}` : "Not synchronized yet"}
+                                  </p>
+                                  {product.amazonIssues?.length ? <p className="mt-1 text-[10px] text-[#d26b10]">{product.amazonIssues.length} Amazon issue(s)</p> : null}
+                                  {product.amazonLastSyncError ? <p className="mt-1 text-[10px] text-[#d14b63]">{product.amazonLastSyncError}</p> : null}
+                                </>
+                              ) : null}
                             </>
                           ) : (
                             <MarketPlaceholder />
@@ -596,7 +640,7 @@ export default function ProductsPage() {
                                 className="text-[#223763] transition hover:text-[#121f39]"
                                 href={
                                   product.source === "amazon"
-                                    ? `/products/add?market=amazon&product_id=${product.id}`
+                                    ? `/products/add?market=amazon&productId=${encodeURIComponent(product.id)}&source=amazon`
                                     : `/products/add?id=${product.id}&source=${product.source}`
                                 }
                               >
@@ -642,6 +686,10 @@ export default function ProductsPage() {
               </tbody>
             </table>
           </div>
+
+        <p className="text-xs text-[#7d89a2]">
+          Amazon shows your seller offer in CommandCtr. The public product page can show another seller&apos;s price.
+        </p>
 
           {!showInitialLoading && filteredProducts.length === 0 ? (
             <div className="border-t border-[#edf1f7] px-4 py-6 text-center text-sm text-[#6f7f9f] md:px-6">

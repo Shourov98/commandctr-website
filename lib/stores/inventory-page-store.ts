@@ -20,6 +20,8 @@ export type InventoryRow = {
   amazonQuantity?: number;
   amazonStatus?: string;
   amazonListingUrl?: string;
+  amazonFulfillmentChannel?: string;
+  amazonLastSyncAt?: string;
   shopifyProductId: string;
   inventoryItemId: string;
   locationId: string;
@@ -200,34 +202,14 @@ function mergeEbayInventory(rows: InventoryRow[], ebayLevels: EbayInventoryLevel
 
 function mergeAmazonInventory(rows: InventoryRow[], products: ProductListItem[]): InventoryRow[] {
   const nextRows: InventoryRow[] = [...rows];
-  const rowIndexBySku = new Map(
-    nextRows
-      .map((row, index) => [normalizeSku(row.sku), index] as const)
-      .filter(([sku]) => Boolean(sku) && sku !== "n/a"),
-  );
-
   const amazonProducts = products.filter((p) => p.marketplace === "amazon" || p.amazonSku);
 
   for (const prod of amazonProducts) {
     const sku = prod.amazonSku || prod.variants[0]?.sku || "";
     const quantity = clampNonNegative(prod.totalInventory ?? prod.variants[0]?.inventoryQuantity ?? 0);
     const prodId = prod._id ?? prod.id ?? "";
-    const matchingIndex = rowIndexBySku.get(normalizeSku(sku));
-
-    if (matchingIndex !== undefined) {
-      nextRows[matchingIndex] = {
-        ...nextRows[matchingIndex],
-        amazonProductId: prodId,
-        amazonSku: sku,
-        amazonAsin: prod.amazonAsin,
-        amazonQuantity: quantity,
-        amazonStatus: prod.amazonStatus ?? prod.status,
-        amazonListingUrl: prod.amazonListingUrl ?? (prod.amazonAsin ? `https://www.amazon.co.uk/dp/${prod.amazonAsin}` : undefined),
-        featuredImage: usableImageUrl(nextRows[matchingIndex].featuredImage ?? prod.featuredImage),
-      };
-      continue;
-    }
-
+    // A shared SKU does not establish that a Shopify and Amazon record are the same product.
+    // Keep marketplace inventory rows independent to prevent accidental cross-marketplace edits.
     nextRows.push({
       id: `amazon:${prodId}`,
       productDocumentId: prodId,
@@ -245,6 +227,8 @@ function mergeAmazonInventory(rows: InventoryRow[], products: ProductListItem[])
       amazonQuantity: quantity,
       amazonStatus: prod.amazonStatus ?? prod.status,
       amazonListingUrl: prod.amazonListingUrl ?? (prod.amazonAsin ? `https://www.amazon.co.uk/dp/${prod.amazonAsin}` : undefined),
+      amazonFulfillmentChannel: prod.amazonFulfillmentChannel,
+      amazonLastSyncAt: prod.lastAmazonSyncAt,
       available: quantity,
       safetyBuffer: 0,
       lowStockThreshold: 5,
@@ -629,6 +613,14 @@ export const useInventoryPageStore = create<InventoryPageState>()(
       async saveAmazonQuantity(row) {
         const { globalEditMode } = get();
         if (!globalEditMode || !row.amazonProductId || row.amazonQuantity === undefined) {
+          return;
+        }
+        if (!Number.isInteger(row.amazonQuantity) || row.amazonQuantity < 0) {
+          get().updateRowFeedback(row.id, { tone: "error", message: "Amazon quantity must be a whole number of zero or more." });
+          return;
+        }
+        if ((row.amazonFulfillmentChannel ?? "DEFAULT").toUpperCase() !== "DEFAULT") {
+          get().updateRowFeedback(row.id, { tone: "error", message: "FBA inventory is managed by Amazon and cannot be edited here." });
           return;
         }
 

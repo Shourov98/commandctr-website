@@ -2820,7 +2820,7 @@ export default function AddProductEditor({
   activeMarket: MarketKey;
   initialProductId: string | null;
   initialImportRecordId?: string | null;
-  initialSourceHint: "shopify" | "product_ai" | "twinstr" | "commandctr" | null;
+  initialSourceHint: "shopify" | "amazon" | "product_ai" | "twinstr" | "commandctr" | null;
   localDraftSeed: LocalDraftSeed | null;
   readOnly?: boolean;
 }) {
@@ -2835,7 +2835,7 @@ export default function AddProductEditor({
   const [variantsByMarket, setVariantsByMarket] = useState<Record<MarketKey, ApiVariant[]>>(sampleVariants);
   const [productId, setProductId] = useState<string | null>(initialSourceHint === "product_ai" ? initialProductId : null);
   const [backendProductId, setBackendProductId] = useState<string | null>(
-    initialSourceHint === "shopify" || initialSourceHint === "twinstr" || initialSourceHint === "commandctr" ? initialProductId : null,
+    initialSourceHint === "shopify" || initialSourceHint === "amazon" || initialSourceHint === "twinstr" || initialSourceHint === "commandctr" ? initialProductId : null,
   );
   const [importRecordId, setImportRecordId] = useState<string | null>(initialImportRecordId);
   const [statusMessage, setStatusMessage] = useState("Choose an image and generate a product draft.");
@@ -3860,7 +3860,7 @@ export default function AddProductEditor({
 
       setIsLoadingProduct(true);
       try {
-        if (initialSourceHint !== "shopify" && initialSourceHint !== "twinstr" && initialSourceHint !== "commandctr") {
+        if (initialSourceHint !== "shopify" && initialSourceHint !== "amazon" && initialSourceHint !== "twinstr" && initialSourceHint !== "commandctr") {
           const response = await fetch(`/api/product-ai/products/${requestedProductId}`, { cache: "no-store" });
           if (response.ok) {
             const record = (await response.json()) as ApiRecord;
@@ -4238,6 +4238,14 @@ export default function AddProductEditor({
     const productDocumentId = product._id ?? product.id ?? null;
     const marketplace = (product.marketplace ?? "").toLowerCase();
     const isShopifyProduct = marketplace === "shopify" && Boolean(product.shopifyProductId);
+    const isAmazonProduct = marketplace === "amazon";
+    const amazonPayload = product.amazonPayload ?? {};
+    const amazonAttributes = Object.fromEntries(
+      Object.entries(amazonPayload.attributes ?? {}).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value : JSON.stringify(value),
+      ]),
+    );
     const imageValue = [featuredImage, ...(product.images ?? []).filter(Boolean)].find(Boolean) ?? "";
     const ebayItemSpecifics = Object.fromEntries(
       Object.entries(product.ebayItemSpecifics ?? {}).map(([key, values]) => [key, Array.isArray(values) ? values.join(", ") : String(values)]),
@@ -4282,6 +4290,14 @@ export default function AddProductEditor({
         listing_notes: product.ebayListingNotes ?? "",
         item_specifics: ebayItemSpecifics,
       },
+      amazon: {
+        ...emptyProduct.amazon,
+        title: product.title,
+        description: product.description ?? "",
+        bullet_points: amazonPayload.bulletPoints ?? [],
+        backend_search_terms: amazonPayload.backendSearchTerms ?? [],
+        structured_attributes: amazonAttributes,
+      },
       shopify: {
         ...emptyProduct.shopify,
         title: product.title,
@@ -4316,6 +4332,16 @@ export default function AddProductEditor({
             errors: imageValue ? [] : emptyProduct.images.ebay.validation.errors,
           },
         },
+        amazon: {
+          ...emptyProduct.images.amazon,
+          relative_path: imageValue,
+          absolute_path: imageValue,
+          validation: {
+            ...emptyProduct.images.amazon.validation,
+            passed: Boolean(imageValue),
+            errors: imageValue ? [] : emptyProduct.images.amazon.validation.errors,
+          },
+        },
         shopify: {
           ...emptyProduct.images.shopify,
           relative_path: imageValue,
@@ -4336,6 +4362,12 @@ export default function AddProductEditor({
     setEbayListingId(product.ebayListingId ?? null);
     setEbayListingStatus(product.ebayStatus ?? null);
     setShopifyProductId(isShopifyProduct ? product.shopifyProductId ?? null : null);
+    if (isAmazonProduct) {
+      setAmazonIdentifierMode(amazonPayload.identifierMode ?? "asin");
+      setAmazonExistingAsin(product.amazonAsin ?? amazonPayload.existingAsin ?? "");
+      setAmazonOfferCondition(product.amazonCondition ?? "new_new");
+      setAmazonFulfillmentChannel(product.amazonFulfillmentChannel ?? "DEFAULT");
+    }
     setSourceTitle(product.title);
     setPublishVendor(product.vendor ?? "");
     setPublishDescription(product.ebayDescriptionOverride ?? product.description ?? "");

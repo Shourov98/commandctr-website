@@ -30,6 +30,11 @@ export type ProductRow = {
   amazonStatus?: string;
   amazonPrice?: string;
   amazonStock?: number;
+  amazonFulfillmentChannel?: string;
+  amazonIssues?: Array<{ code?: string; message?: string; severity?: string }>;
+  amazonLastSyncAt?: string;
+  amazonLastSyncError?: string | null;
+  amazonOfferUpdatePending?: boolean;
   ebayStatus?: string;
   ebayListingId?: string;
   ebayOfferId?: string;
@@ -129,6 +134,10 @@ type ProductsPageState = {
   deleteProduct: (row: ProductRow) => Promise<void>;
   updateShopifyPriceDraft: (rowId: string, nextPrice: string) => void;
   saveShopifyPrice: (row: ProductRow) => Promise<void>;
+  updateAmazonPriceDraft: (rowId: string, nextPrice: string) => void;
+  saveAmazonPrice: (row: ProductRow) => Promise<void>;
+  syncAmazonListing: (row: ProductRow) => Promise<void>;
+  syncAmazonListings: () => Promise<void>;
   updateStockDraft: (rowId: string, nextStock: string) => void;
   saveStock: (row: ProductRow) => Promise<void>;
 };
@@ -212,6 +221,11 @@ function mapProductRows(products: ProductListItem[], inventoryLevels: ShopifyInv
       amazonStatus: product.amazonStatus ?? (product.marketplace === "amazon" ? product.status : undefined),
       amazonPrice: product.marketplace === "amazon" ? (primaryVariant?.price ?? "") : undefined,
       amazonStock: product.marketplace === "amazon" ? toSafeStock(liveStock) : undefined,
+      amazonFulfillmentChannel: product.amazonFulfillmentChannel,
+      amazonIssues: product.amazonIssues,
+      amazonLastSyncAt: product.lastAmazonSyncAt,
+      amazonLastSyncError: product.amazonLastSyncError,
+      amazonOfferUpdatePending: product.amazonOfferUpdatePending,
       ebayStatus: product.ebayStatus,
       ebayListingId: product.ebayListingId,
       ebayOfferId: product.ebayOfferId,
@@ -516,6 +530,110 @@ export const useProductsPageStore = create<ProductsPageState>()(
           }));
         }
       },
+      updateAmazonPriceDraft(rowId, nextPrice) {
+        set((state) => ({
+          products: state.products.map((row) => (row.id === rowId ? { ...row, amazonPrice: nextPrice } : row)),
+        }));
+      },
+      async saveAmazonPrice(row) {
+        const { globalEditMode } = get();
+        if (!globalEditMode || row.source !== "amazon") {
+          return;
+        }
+
+        const normalizedPrice = row.amazonPrice?.trim() ?? "";
+        const numericPrice = Number(normalizedPrice);
+        if (!normalizedPrice || !Number.isFinite(numericPrice) || numericPrice < 0) {
+          set((state) => ({
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: { tone: "error", message: "Amazon price must be a valid number." },
+            },
+          }));
+          return;
+        }
+
+        set((state) => ({
+          rowFeedbackById: {
+            ...state.rowFeedbackById,
+            [row.id]: { tone: "saving", message: "Updating Amazon price..." },
+          },
+        }));
+
+        try {
+          const result = await productsApi.updateAmazonOffer(row.id, { price: numericPrice.toFixed(2) });
+          const remotePrice = result.variants?.[0]?.price ?? row.amazonPrice;
+          const pending = result.amazonOfferUpdatePending === true;
+          set((state) => ({
+            products: state.products.map((current) =>
+              current.id === row.id
+                ? {
+                    ...current,
+                    amazonPrice: remotePrice,
+                    amazonOfferUpdatePending: pending,
+                    amazonLastSyncError: result.amazonLastSyncError ?? null,
+                    amazonStatus: result.amazonStatus ?? current.amazonStatus,
+                    amazonLastSyncAt: result.lastAmazonSyncAt ?? current.amazonLastSyncAt,
+                  }
+                : current,
+            ),
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: pending
+                ? { tone: "saving", message: "Amazon accepted the price request; confirmation is pending. Displaying Amazon's current price." }
+                : { tone: "success", message: "Amazon price confirmed." },
+            },
+          }));
+        } catch (error) {
+          set((state) => ({
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: {
+                tone: "error",
+                message: error instanceof ApiClientError ? error.message : "Could not update Amazon price.",
+              },
+            },
+          }));
+        }
+      },
+      async syncAmazonListing(row) {
+        if (row.source !== "amazon") {
+          return;
+        }
+        set((state) => ({ rowFeedbackById: { ...state.rowFeedbackById, [row.id]: { tone: "saving", message: "Synchronizing Amazon listing..." } } }));
+        try {
+          const result = await productsApi.syncAmazonListing(row.id);
+          const variant = result.variants?.[0];
+          set((state) => ({
+            products: state.products.map((current) => current.id === row.id ? {
+              ...current,
+              title: result.title ?? current.title,
+              stock: toSafeStock(result.totalInventory ?? variant?.inventoryQuantity ?? current.stock),
+              amazonStock: toSafeStock(result.totalInventory ?? variant?.inventoryQuantity ?? current.amazonStock),
+              amazonPrice: variant?.price ?? current.amazonPrice,
+              amazonStatus: result.amazonStatus ?? result.status ?? current.amazonStatus,
+              amazonAsin: result.amazonAsin ?? current.amazonAsin,
+              amazonListingUrl: result.amazonListingUrl ?? current.amazonListingUrl,
+              amazonIssues: result.amazonIssues ?? current.amazonIssues,
+              amazonLastSyncAt: result.lastAmazonSyncAt ?? current.amazonLastSyncAt,
+              amazonLastSyncError: result.amazonLastSyncError ?? null,
+            } : current),
+            rowFeedbackById: { ...state.rowFeedbackById, [row.id]: { tone: "success", message: "Amazon listing synchronized." } },
+          }));
+        } catch (error) {
+          set((state) => ({ rowFeedbackById: { ...state.rowFeedbackById, [row.id]: { tone: "error", message: error instanceof ApiClientError ? error.message : "Could not synchronize Amazon listing." } } }));
+        }
+      },
+      async syncAmazonListings() {
+        set({ pageMessage: "Synchronizing Amazon listings..." });
+        try {
+          const result = await productsApi.syncAmazonListings();
+          await get().loadPage(get().pagination.page, { refreshShopify: true });
+          set({ pageMessage: result.failed.length ? `Amazon sync completed: ${result.synced} synced, ${result.failed.length} need attention.` : `Amazon sync completed: ${result.synced} listing(s) synchronized.` });
+        } catch (error) {
+          set({ pageMessage: error instanceof ApiClientError ? error.message : "Could not synchronize Amazon listings." });
+        }
+      },
       updateStockDraft(rowId, nextStock) {
         const numericValue = Number(nextStock);
         set((state) => ({
@@ -524,6 +642,7 @@ export const useProductsPageStore = create<ProductsPageState>()(
               ? {
                   ...row,
                   stock: Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : 0,
+                  amazonStock: row.source === "amazon" && Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : row.amazonStock,
                 }
               : row,
           ),
@@ -531,7 +650,60 @@ export const useProductsPageStore = create<ProductsPageState>()(
       },
       async saveStock(row) {
         const { globalEditMode } = get();
-        if (!globalEditMode || row.source !== "shopify") {
+        if (!globalEditMode || (row.source !== "shopify" && row.source !== "amazon")) {
+          return;
+        }
+
+        if (!Number.isInteger(row.stock) || row.stock < 0) {
+          set((state) => ({
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: { tone: "error", message: `${row.source === "amazon" ? "Amazon" : "Shopify"} stock must be a whole number of zero or more.` },
+            },
+          }));
+          return;
+        }
+
+        if (row.source === "amazon") {
+          set((state) => ({
+            rowFeedbackById: {
+              ...state.rowFeedbackById,
+              [row.id]: { tone: "saving", message: "Updating Amazon stock..." },
+            },
+          }));
+
+          try {
+            const result = await productsApi.updateAmazonOffer(row.id, { quantity: row.stock });
+            const remoteStock = toSafeStock(result.totalInventory ?? result.variants?.[0]?.inventoryQuantity ?? row.stock);
+            const pending = result.amazonOfferUpdatePending === true;
+            set((state) => ({
+              products: state.products.map((current) => current.id === row.id ? {
+                ...current,
+                stock: remoteStock,
+                amazonStock: remoteStock,
+                amazonOfferUpdatePending: pending,
+                amazonLastSyncError: result.amazonLastSyncError ?? null,
+                amazonStatus: result.amazonStatus ?? current.amazonStatus,
+                amazonLastSyncAt: result.lastAmazonSyncAt ?? current.amazonLastSyncAt,
+              } : current),
+              rowFeedbackById: {
+                ...state.rowFeedbackById,
+                [row.id]: pending
+                  ? { tone: "saving", message: "Amazon accepted the stock request; confirmation is pending. Displaying Amazon's current quantity." }
+                  : { tone: "success", message: "Amazon stock confirmed." },
+              },
+            }));
+          } catch (error) {
+            set((state) => ({
+              rowFeedbackById: {
+                ...state.rowFeedbackById,
+                [row.id]: {
+                  tone: "error",
+                  message: error instanceof ApiClientError ? error.message : "Could not update Amazon stock.",
+                },
+              },
+            }));
+          }
           return;
         }
 

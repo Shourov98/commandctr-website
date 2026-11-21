@@ -410,7 +410,7 @@ export default function InventoryPage() {
                         <td className="border-l border-[#ffe0bc] px-4 py-4 text-center">
                           {item.amazonProductId || item.amazonSku ? (
                             <>
-                              {canEdit ? (
+                              {canEdit && (item.amazonFulfillmentChannel ?? "DEFAULT").toUpperCase() === "DEFAULT" ? (
                                 <input
                                   className="h-8 w-[84px] rounded-lg border border-[#fbd38d] bg-white px-2 text-center text-sm text-[#3f4d65] outline-none"
                                   min={0}
@@ -425,8 +425,11 @@ export default function InventoryPage() {
                                 </div>
                               )}
                               <p className="mt-1 text-xs text-[#dd6b20]">
-                                {item.amazonStatus === "active" ? "Live Amazon FBM" : item.amazonStatus || "Amazon offer"}
+                                {(item.amazonFulfillmentChannel ?? "DEFAULT").toUpperCase() === "DEFAULT"
+                                  ? item.amazonStatus === "active" ? "Live Amazon FBM" : item.amazonStatus || "Amazon FBM offer"
+                                  : "Amazon FBA (managed by Amazon)"}
                               </p>
+                              {item.amazonLastSyncAt ? <p className="mt-0.5 text-[10px] text-[#7d89a2]">Synced {new Date(item.amazonLastSyncAt).toLocaleString()}</p> : null}
                               {item.amazonAsin ? (
                                 <a
                                   className="mt-0.5 block text-[11px] font-mono text-[#4a5568] hover:text-[#2b6cb0] hover:underline"

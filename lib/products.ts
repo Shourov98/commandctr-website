@@ -47,7 +47,17 @@ export type ProductListItem = {
   amazonCondition?: string;
   amazonFulfillmentChannel?: string;
   amazonSubmissionId?: string;
+  amazonIssues?: Array<{ code?: string; message?: string; severity?: string; attributeNames?: string[] }>;
+  amazonLastSyncError?: string | null;
+  amazonOfferUpdatePending?: boolean;
   lastAmazonSyncAt?: string;
+  amazonPayload?: {
+    bulletPoints?: string[];
+    backendSearchTerms?: string[];
+    attributes?: Record<string, unknown>;
+    identifierMode?: "gtin" | "asin" | "no_identifier";
+    existingAsin?: string;
+  };
   updatedAt?: string;
   createdAt?: string;
 };
@@ -97,6 +107,11 @@ export type ShopifyVariantPriceResult = {
   id: string;
   price?: string;
   compareAtPrice?: string;
+};
+
+export type AmazonOfferUpdatePayload = {
+  price?: string;
+  quantity?: number;
 };
 
 export type InventoryRecord = {
@@ -196,6 +211,25 @@ export const productsApi = {
     return requestWithAuth<{ createdAt: string } | null>(`/shopify/inventory?inventoryItemId=${encodeURIComponent(inventoryItemId)}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
+    });
+  },
+
+  updateAmazonOffer(productId: string, payload: AmazonOfferUpdatePayload) {
+    return requestWithAuth<ProductListItem>(`/amazon/listings/${encodeURIComponent(productId)}/offer`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  syncAmazonListing(productId: string) {
+    return requestWithAuth<ProductListItem>(`/amazon/listings/${encodeURIComponent(productId)}/sync`, {
+      method: "POST",
+    });
+  },
+
+  syncAmazonListings() {
+    return requestWithAuth<{ requested: number; synced: number; failed: Array<{ sku: string; message: string }> }>("/amazon/listings/sync", {
+      method: "POST",
     });
   },
 
