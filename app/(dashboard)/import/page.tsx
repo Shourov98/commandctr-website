@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import DuplicateResolveModal from "./DuplicateResolveModal";
+import BulkCutoutPanel from "./BulkCutoutPanel";
 import { useImportPageStore, type ImportRow, type ImportStatus } from "@/lib/stores/import-page-store";
 
 type EditableField = "title" | "category";
@@ -29,10 +30,9 @@ function StatusBadge({ status }: { status: ImportStatus }) {
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${styles[status]}`}>{labels[status]}</span>;
 }
 
-function imageUrlFor(path: string) {
+function imageUrlFor(path: string, recordId: string, revision: string) {
   if (!path) return "";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  return `/api/product-ai/image?path=${encodeURIComponent(path)}`;
+  return "/api/product-ai/imports/products/"+recordId+"/image?kind=source&v="+encodeURIComponent(revision);
 }
 
 export default function ImportPage() {
@@ -277,6 +277,8 @@ export default function ImportPage() {
           </div>
         </div>
 
+        <BulkCutoutPanel selectedIds={selectedIds} totalImports={summary.total_imported} onFinished={loadPage} />
+
         <input accept=".csv,.xlsx,.xls,.pdf" className="hidden" onChange={handleFileChange} ref={inputRef} type="file" />
 
         <div className="rounded-2xl border border-[#dbe2ee] bg-[#f8fbff] px-4 py-3 text-sm text-[#5d708e]">
@@ -340,7 +342,7 @@ export default function ImportPage() {
                   const hasDuplicateGroup = row.status === "duplicate" || Boolean(row.primary_record_id) || row.duplicate_count > 0;
                   const canUploadRow = row.can_upload_as_product && row.status !== "duplicate" && row.status !== "rejected";
                   const isBusy = busyRecordId === row.id;
-                  const imageUrl = imageUrlFor(row.preview_image_path);
+                  const imageUrl = imageUrlFor(row.preview_image_path, row.id, row.updated_at);
                   const isEditingTitle = editing?.recordId === row.id && editing.field === "title";
                   const isEditingCategory = editing?.recordId === row.id && editing.field === "category";
                   const uploadButtonLabel = canUploadRow ? "Upload as Product" : hasDuplicateGroup ? "Resolve Duplicate" : "Complete Fields";
